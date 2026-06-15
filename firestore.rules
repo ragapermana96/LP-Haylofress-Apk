@@ -1,0 +1,117 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- REUSABLE HELPERS ---
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+    
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function incoming() {
+      return request.resource.data;
+    }
+    
+    function existing() {
+      return resource.data;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        // Bootstrap admin check
+        (request.auth.token.email != null && request.auth.token.email == 'ragapermana96@gmail.com' && request.auth.token.email_verified == true) ||
+        // Trusted DB check
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // --- VALIDATION BLUEPRINTS ---
+
+    function isValidProduct(p) {
+      return p.keys().hasAll(['id', 'name', 'category', 'unit', 'priceNormal', 'priceDiscount', 'priceGrosir1', 'priceGrosir2', 'priceGrosir3', 'imageUrl', 'description']) &&
+             p.id is string && p.id.size() <= 64 &&
+             p.name is string && p.name.size() <= 200 &&
+             p.category is string && p.category.size() <= 64 &&
+             p.unit is string && p.unit.size() <= 20 &&
+             p.priceNormal is number && p.priceNormal >= 0 &&
+             p.priceDiscount is number && p.priceDiscount >= 0 &&
+             p.priceGrosir1 is number && p.priceGrosir1 >= 0 &&
+             p.priceGrosir2 is number && p.priceGrosir2 >= 0 &&
+             p.priceGrosir3 is number && p.priceGrosir3 >= 0 &&
+             p.imageUrl is string && p.imageUrl.size() <= 1024 &&
+             p.description is string && p.description.size() <= 2000;
+    }
+
+    function isValidCategory(c) {
+      return c.keys().hasAll(['id', 'name', 'order']) &&
+             c.id is string && c.id.size() <= 64 &&
+             c.name is string && c.name.size() <= 100 &&
+             c.order is number;
+    }
+
+    function isValidAppSettings(s) {
+      return s.keys().hasAll(['waNumber', 'heroTitle', 'heroSubtitle', 'heroImageUrl', 'profilTitle', 'profilDescription', 'profilDescriptionSec', 'profilImageLeft', 'profilImageRight', 'problemTitle', 'problemSubtitle', 'solutionTitle', 'solutionSubtitle']) &&
+             s.waNumber is string && s.waNumber.size() <= 32 &&
+             s.heroTitle is string && s.heroTitle.size() <= 500;
+    }
+
+    function isValidAdminUser(a) {
+      return a.keys().hasAll(['email', 'createdAt']) &&
+             a.email is string && a.email.size() <= 128 &&
+             a.createdAt is timestamp;
+    }
+
+    function isValidPixelAnalytics(p) {
+      return p.keys().hasAll(['eventName', 'timestamp']) &&
+             p.eventName is string && p.eventName.size() <= 100 &&
+             p.timestamp is timestamp;
+    }
+
+    // --- COLLECTION RULES ---
+
+    match /categories/{categoryId} {
+      allow get: if isValidId(categoryId);
+      allow list: if true;
+      allow create: if isAdmin() && isValidCategory(incoming());
+      allow update: if isAdmin() && isValidCategory(incoming());
+      allow delete: if isAdmin();
+    }
+
+    match /products/{productId} {
+      allow get: if isValidId(productId);
+      allow list: if true;
+      allow create: if isAdmin() && isValidProduct(incoming());
+      allow update: if isAdmin() && isValidProduct(incoming());
+      allow delete: if isAdmin();
+    }
+
+    match /settings/{settingId} {
+      allow get: if isValidId(settingId);
+      allow list: if isAdmin();
+      allow create: if isAdmin() && isValidAppSettings(incoming());
+      allow update: if isAdmin() && isValidAppSettings(incoming());
+      allow delete: if isAdmin();
+    }
+    
+    match /admins/{adminId} {
+      allow get: if isSignedIn() && isValidId(adminId) && (request.auth.uid == adminId || isAdmin());
+      allow create: if isAdmin() && isValidAdminUser(incoming());
+      allow update: if isAdmin() && isValidAdminUser(incoming());
+      allow delete: if isAdmin() && request.auth.uid != adminId; // Prevent self-deletion if last admin
+    }
+
+    match /pixel_analytics/{analyticsId} {
+      allow create: if isValidId(analyticsId) && isValidPixelAnalytics(incoming());
+      allow get: if isAdmin() && isValidId(analyticsId);
+      allow list: if isAdmin();
+      allow update, delete: if false; // Logs are immutable
+    }
+  }
+}

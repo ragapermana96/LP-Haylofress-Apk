@@ -1,0 +1,238 @@
+{
+  "entities": {
+    "Product": {
+      "title": "Product",
+      "description": "Product item in the catalog with retail, discount, and wholesale configurations.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier of the product"
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the product"
+        },
+        "category": {
+          "type": "string",
+          "description": "Category of the product ID"
+        },
+        "unit": {
+          "type": "string",
+          "description": "Measuring unit of the product (e.g. Kg)"
+        },
+        "priceNormal": {
+          "type": "number",
+          "description": "Normal price per unit (Retail)"
+        },
+        "priceDiscount": {
+          "type": "number",
+          "description": "Discount or promotional price per unit"
+        },
+        "priceGrosir1": {
+          "type": "number",
+          "description": "Wholesale price Tier 1 (Min. 10 Kg)"
+        },
+        "priceGrosir2": {
+          "type": "number",
+          "description": "Wholesale price Tier 2 (Min. 100 - 500 Kg)"
+        },
+        "priceGrosir3": {
+          "type": "number",
+          "description": "Wholesale price Tier 3 (Min. 500 Kg keatas)"
+        },
+        "imageUrl": {
+          "type": "string",
+          "description": "URL of the product illustration"
+        },
+        "description": {
+          "type": "string",
+          "description": "Short description of the product"
+        },
+        "visible": {
+          "type": "boolean",
+          "description": "Whether the product is active & visible to customers in the catalog"
+        },
+        "order": {
+          "type": "number",
+          "description": "Sort order of the product"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "category",
+        "unit",
+        "priceNormal",
+        "priceDiscount",
+        "priceGrosir1",
+        "priceGrosir2",
+        "priceGrosir3",
+        "imageUrl",
+        "description"
+      ]
+    },
+    "AppSettings": {
+      "title": "AppSettings",
+      "description": "Global custom configurations and text structures for the landing page editable blocks",
+      "type": "object",
+      "properties": {
+        "waNumber": {
+          "type": "string",
+          "description": "Admin WhatsApp connection phone number"
+        },
+        "metaPixelId": {
+          "type": "string",
+          "description": "Meta/Facebook Pixel tracking ID"
+        },
+        "heroTitle": {
+          "type": "string",
+          "description": "Hero section primary heading"
+        },
+        "heroSubtitle": {
+          "type": "string",
+          "description": "Hero section core description paragraph"
+        },
+        "heroImageUrl": {
+          "type": "string",
+          "description": "Hero section action background/side photo"
+        },
+        "profilTitle": {
+          "type": "string",
+          "description": "Main title of the Profil Usaha section"
+        },
+        "profilDescription": {
+          "type": "string",
+          "description": "Primary descriptive paragraph for Profil Usaha"
+        },
+        "profilDescriptionSec": {
+          "type": "string",
+          "description": "Secondary descriptive paragraph for Profil Usaha"
+        },
+        "profilImageLeft": {
+          "type": "string",
+          "description": "Left sidebar illustration in Profil Usaha"
+        },
+        "profilImageRight": {
+          "type": "string",
+          "description": "Right side illustration in Profil Usaha"
+        },
+        "problemTitle": {
+          "type": "string",
+          "description": "Title of the problem section"
+        },
+        "problemSubtitle": {
+          "type": "string",
+          "description": "Subtitle description of the problem section"
+        },
+        "solutionTitle": {
+          "type": "string",
+          "description": "Title of the solution section"
+        },
+        "solutionSubtitle": {
+          "type": "string",
+          "description": "Subtitle description of the solution section"
+        }
+      },
+      "required": [
+        "waNumber",
+        "heroTitle",
+        "heroSubtitle",
+        "heroImageUrl",
+        "profilTitle",
+        "profilDescription",
+        "profilDescriptionSec",
+        "profilImageLeft",
+        "profilImageRight",
+        "problemTitle",
+        "problemSubtitle",
+        "solutionTitle",
+        "solutionSubtitle"
+      ]
+    },
+    "AdminUser": {
+      "title": "AdminUser",
+      "description": "Administrator account metadata",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "createdBy": {
+          "type": "string"
+        }
+      },
+      "required": ["email", "createdAt"]
+    },
+    "PixelAnalytics": {
+      "title": "PixelAnalytics",
+      "description": "Customer activity logging synchronized with Meta Pixel",
+      "type": "object",
+      "properties": {
+        "eventName": {
+          "type": "string"
+        },
+        "params": {
+          "type": "object"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "userAgent": {
+          "type": "string"
+        },
+        "pageUrl": {
+          "type": "string"
+        },
+        "referrer": {
+          "type": "string"
+        }
+      },
+      "required": ["eventName", "timestamp"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "Custom product category definitions",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "order": {
+          "type": "number"
+        }
+      },
+      "required": ["id", "name", "order"]
+    }
+  },
+  "firestore": {
+    "/categories/{categoryId}": {
+      "schema": "Category",
+      "description": "Customizable list of product classifications"
+    },
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Stores catalog items including meats and veggies"
+    },
+    "/settings/{settingId}": {
+      "schema": "AppSettings",
+      "description": "Stores persistent global texts, media, contact and checkout numbers"
+    },
+    "/admins/{adminId}": {
+      "schema": "AdminUser",
+      "description": "Registered administrative operators"
+    },
+    "/pixel_analytics/{analyticsId}": {
+      "schema": "PixelAnalytics",
+      "description": "Customer visitor interaction statistics and conversion tracking logs"
+    }
+  }
+}
