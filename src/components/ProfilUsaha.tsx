@@ -38,8 +38,8 @@ export default function ProfilUsaha({ settings }: ProfilUsahaProps) {
 
             <div className="space-y-4 pt-8">
               <div className="bg-white/40 backdrop-blur-xl border border-white/60 text-slate-800 p-6 rounded-[2rem] space-y-2 shadow-md">
-                <span className="text-xl font-black text-emerald-700 block">500+</span>
-                <span className="text-xs font-bold uppercase tracking-wider block text-slate-700">Pelanggan Aktif</span>
+                <span className="text-xl font-black text-emerald-700 block">Puluhan</span>
+                <span className="text-xs font-bold uppercase tracking-wider block text-slate-700">Pengikut & Pelanggan Aktif</span>
                 <p className="text-[11px] text-slate-600 leading-normal">
                   Ibu rumah tangga, pengusaha warung, mie ayam, katering hajatan di Ngawi.
                 </p>

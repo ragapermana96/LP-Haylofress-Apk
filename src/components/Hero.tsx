@@ -92,7 +92,7 @@ export default function Hero({ settings }: HeroProps) {
             {/* Social Proof / Trust Indicators */}
             <div className="pt-6 border-t border-slate-200/60 flex flex-wrap items-center justify-center lg:justify-start gap-6 text-xs text-slate-500 font-medium font-sans">
               <span className="flex items-center gap-1.5 bg-white/50 backdrop-blur-sm px-3 py-1.5 rounded-lg border border-white/40">
-                <Sparkles className="w-4 h-4 text-amber-500" /> Dipercaya oleh 500+ Dapur Ibu & UMKM Kuliner Ngawi
+                <Sparkles className="w-4 h-4 text-amber-500" /> Dipercaya oleh banyak dapur, ibu rumah tangga, dan pelaku UMKM di wilayah Ngawi
               </span>
               <span className="flex items-center gap-1.5 text-emerald-700">
                 ● Layanan Same-day Delivery Siap Antar
