@@ -26,7 +26,7 @@ service cloud.firestore {
     function isAdmin() {
       return isSignedIn() && (
         // Bootstrap admin check
-        (request.auth.token.email != null && request.auth.token.email == 'ragapermana96@gmail.com' && request.auth.token.email_verified == true) ||
+        (request.auth.token.email != null && request.auth.token.email == 'ragapermana96@gmail.com') ||
         // Trusted DB check
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
@@ -74,7 +74,24 @@ service cloud.firestore {
              p.timestamp is timestamp;
     }
 
+    function isValidBundle(b) {
+      return b.keys().hasAll(['id', 'title', 'originalPrice', 'promoPrice', 'items']) &&
+             b.id is string && b.id.size() <= 64 &&
+             b.title is string && b.title.size() <= 200 &&
+             b.originalPrice is number && b.originalPrice >= 0 &&
+             b.promoPrice is number && b.promoPrice >= 0 &&
+             b.items is list;
+    }
+
     // --- COLLECTION RULES ---
+
+    match /bundles/{bundleId} {
+      allow get: if isValidId(bundleId);
+      allow list: if true;
+      allow create: if isAdmin() && isValidBundle(incoming());
+      allow update: if isAdmin() && isValidBundle(incoming());
+      allow delete: if isAdmin();
+    }
 
     match /categories/{categoryId} {
       allow get: if isValidId(categoryId);
@@ -102,7 +119,7 @@ service cloud.firestore {
     
     match /admins/{adminId} {
       allow get: if isSignedIn() && isValidId(adminId) && (request.auth.uid == adminId || isAdmin());
-      allow create: if isAdmin() && isValidAdminUser(incoming());
+      allow create: if (isSignedIn() && request.auth.token.email == 'ragapermana96@gmail.com' && request.auth.uid == adminId && isValidAdminUser(incoming())) || (isAdmin() && isValidAdminUser(incoming()));
       allow update: if isAdmin() && isValidAdminUser(incoming());
       allow delete: if isAdmin() && request.auth.uid != adminId; // Prevent self-deletion if last admin
     }

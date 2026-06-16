@@ -54,6 +54,8 @@ interface CartDrawerProps {
   onRemoveItem: (productId: string) => void;
   onClearCart: () => void;
   settings?: any;
+  customerInfo: CustomerInfo;
+  onCustomerInfoChange: (info: CustomerInfo) => void;
 }
 
 export default function CartDrawer({
@@ -64,14 +66,9 @@ export default function CartDrawer({
   onRemoveItem,
   onClearCart,
   settings,
+  customerInfo,
+  onCustomerInfoChange,
 }: CartDrawerProps) {
-  const [customerInfo, setCustomerInfo] = useState<CustomerInfo>({
-    name: '',
-    phone: '',
-    address: '',
-    notes: '',
-    buyerType: 'rumah_tangga',
-  });
   const [validationError, setValidationError] = useState<string | null>(null);
 
   // Track InitiateCheckout on open
@@ -117,12 +114,12 @@ export default function CartDrawer({
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
   ) => {
     const { name, value } = e.target;
-    setCustomerInfo((prev) => ({ ...prev, [name]: value }));
+    onCustomerInfoChange({ ...customerInfo, [name]: value });
     if (validationError) setValidationError(null);
   };
 
   const handleBuyerTypeSelect = (type: 'rumah_tangga' | 'umkm' | 'reseller') => {
-    setCustomerInfo((prev) => ({ ...prev, buyerType: type }));
+    onCustomerInfoChange({ ...customerInfo, buyerType: type });
   };
 
   const executeCheckout = (e: React.FormEvent) => {

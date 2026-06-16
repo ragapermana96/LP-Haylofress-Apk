@@ -21,6 +21,19 @@ export interface Product {
   visible?: boolean;
   order?: number;
   categoryName?: string;
+  isBundle?: boolean; // dynamic check for bundle packages
+}
+
+export interface Bundle {
+  id: string;
+  title: string;
+  description: string;
+  originalPrice: number;
+  promoPrice: number;
+  imageUrl: string;
+  items: string[];
+  visible?: boolean;
+  order?: number;
 }
 
 export interface CartItem {

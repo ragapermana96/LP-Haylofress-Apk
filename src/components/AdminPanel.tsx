@@ -3,14 +3,15 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   X, Lock, LogIn, LogOut, CheckCircle, Save, Plus, Edit2, Trash2, 
   Settings, ShoppingBag, Phone, AlertCircle, RefreshCw, Key, Image, HelpCircle, UserPlus,
-  Sparkles, Users, Home, Upload, Layers, ArrowUp, ArrowDown, FileSpreadsheet
+  Sparkles, Users, Home, Upload, Layers, ArrowUp, ArrowDown, FileSpreadsheet, Gift, Eye, EyeOff,
+  ShoppingCart, MessageSquare
 } from 'lucide-react';
 import { db, auth, handleFirestoreError, OperationType } from '../firebase';
 import { 
   collection, doc, getDocs, setDoc, updateDoc, deleteDoc, getDoc, writeBatch 
 } from 'firebase/firestore';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
-import { Product, DynamicCategory } from '../types';
+import { Product, DynamicCategory, Bundle } from '../types';
 import { PRODUCTS } from '../data/products';
 
 interface AdminPanelProps {
@@ -20,6 +21,7 @@ interface AdminPanelProps {
   currentSettings: any;
   currentProducts: Product[];
   currentCategories: DynamicCategory[];
+  currentBundles?: Bundle[];
 }
 
 export default function AdminPanel({
@@ -28,7 +30,8 @@ export default function AdminPanel({
   onRefreshData,
   currentSettings,
   currentProducts,
-  currentCategories
+  currentCategories,
+  currentBundles = []
 }: AdminPanelProps) {
   // Auth state
   const [email, setEmail] = useState('');
@@ -45,7 +48,9 @@ export default function AdminPanel({
       return 0;
     }
   });
-  const [activeTab, setActiveTab] = useState<'landing' | 'products' | 'whatsapp' | 'admins' | 'layout-order'>('landing');
+  const [activeTab, setActiveTab] = useState<'landing' | 'products' | 'whatsapp' | 'admins' | 'layout-order' | 'bundles' | 'carts'>('landing');
+  const [cartFilter, setCartFilter] = useState<'all' | 'active' | 'checkout' | 'completed'>('all');
+  const [cartSearch, setCartSearch] = useState('');
 
   // Dynamic Layout & Sorting Manager States
   const [catalogLayout, setCatalogLayout] = useState(currentSettings?.catalogLayout || 'tabs');
@@ -98,11 +103,154 @@ export default function AdminPanel({
     totalSales: 0
   });
 
+  // Consolidate logs into distinct customer carts
+  const visitorCarts = React.useMemo(() => {
+    // Sort chronological: oldest to newest
+    const logsChronological = [...analyticsLogs].reverse();
+    const cartsMap: { [key: string]: any } = {};
+
+    logsChronological.forEach((log) => {
+      const name = (log.params?.customer_name || '').trim();
+      const phone = (log.params?.customer_phone || '').trim();
+      
+      // We must have at least a Name or Phone to catalog a visitor cart
+      if (!name && !phone) return;
+
+      // Unique composite key matching name or phone
+      const key = (phone && phone !== '-') ? phone : name;
+      if (!key) return;
+
+      if (!cartsMap[key]) {
+        cartsMap[key] = {
+          id: key,
+          customerName: name || 'Tanpa Nama',
+          customerPhone: phone || '-',
+          buyerType: log.params?.buyer_type || 'household',
+          lastActivity: log.timestamp,
+          items: [],
+          hasPurchased: false,
+          status: 'Active', // Empty, Active, Checkout, Completed
+          purchaseTotal: 0,
+          notes: '',
+          address: '',
+          lastUpdateTime: log.timestamp,
+        };
+      }
+
+      // Chronological state machine updates
+      if (log.eventName === 'AddToCart' || log.eventName === 'CartUpdate') {
+        const rawItems = log.params?.cart_items || log.params?.items || [];
+        cartsMap[key].items = Array.isArray(rawItems) ? rawItems : [];
+        cartsMap[key].lastActivity = log.timestamp;
+        cartsMap[key].lastUpdateTime = log.timestamp;
+        cartsMap[key].buyerType = log.params?.buyer_type || cartsMap[key].buyerType;
+        
+        if (cartsMap[key].status !== 'Completed') {
+          cartsMap[key].status = cartsMap[key].items.length > 0 ? 'Active' : 'Empty';
+        }
+      } else if (log.eventName === 'InitiateCheckout') {
+        cartsMap[key].lastActivity = log.timestamp;
+        cartsMap[key].lastUpdateTime = log.timestamp;
+        if (cartsMap[key].status !== 'Completed') {
+          cartsMap[key].status = 'Checkout';
+        }
+      } else if (log.eventName === 'Purchase') {
+        cartsMap[key].lastActivity = log.timestamp;
+        cartsMap[key].lastUpdateTime = log.timestamp;
+        cartsMap[key].hasPurchased = true;
+        cartsMap[key].status = 'Completed';
+        cartsMap[key].purchaseTotal = Number(log.params?.value || 0);
+        cartsMap[key].address = log.params?.customer_address || cartsMap[key].address;
+        cartsMap[key].notes = log.params?.customer_notes || cartsMap[key].notes;
+        
+        const rawItems = log.params?.items || log.params?.cart_items || [];
+        if (Array.isArray(rawItems) && rawItems.length > 0) {
+          cartsMap[key].items = rawItems;
+        }
+      }
+    });
+
+    return Object.values(cartsMap).filter((c: any) => {
+      // Keep completed purchases, or active/checkout carts with at least one item
+      return c.status === 'Completed' || (c.status !== 'Empty' && c.items && c.items.length > 0);
+    });
+  }, [analyticsLogs]);
+
+  const cartStats = React.useMemo(() => {
+    let activeCartsVal = 0;
+    let completedCartsVal = 0;
+    let activeCount = 0;
+    let checkoutCount = 0;
+    let completedCount = 0;
+
+    visitorCarts.forEach((c: any) => {
+      const subtotal = c.items.reduce((sum: number, it: any) => sum + (Number(it.price || 0) * Number(it.quantity || 1)), 0);
+      if (c.status === 'Completed') {
+        completedCount++;
+        completedCartsVal += c.purchaseTotal || subtotal;
+      } else if (c.status === 'Checkout') {
+        checkoutCount++;
+        activeCartsVal += subtotal;
+      } else if (c.status === 'Active') {
+        activeCount++;
+        activeCartsVal += subtotal;
+      }
+    });
+
+    return {
+      activeCount,
+      checkoutCount,
+      completedCount,
+      abandonedTotalValue: activeCartsVal,
+      completedTotalValue: completedCartsVal,
+      totalCount: visitorCarts.length
+    };
+  }, [visitorCarts]);
+
+  const filteredVisitorCarts = React.useMemo(() => {
+    return visitorCarts.filter((cart) => {
+      // 1. Filter by Status
+      if (cartFilter !== 'all') {
+        if (cartFilter === 'active' && cart.status !== 'Active') return false;
+        if (cartFilter === 'checkout' && cart.status !== 'Checkout') return false;
+        if (cartFilter === 'completed' && cart.status !== 'Completed') return false;
+      }
+
+      // 2. Search query matching
+      if (cartSearch.trim()) {
+        const query = cartSearch.toLowerCase().trim();
+        const nameMatch = cart.customerName.toLowerCase().includes(query);
+        const phoneMatch = cart.customerPhone.toLowerCase().includes(query);
+        const itemMatch = cart.items.some((it: any) => (it.name || '').toLowerCase().includes(query));
+        return nameMatch || phoneMatch || itemMatch;
+      }
+
+      return true;
+    }).sort((a: any, b: any) => {
+      const timeA = a.lastActivity?.seconds ? a.lastActivity.seconds * 1000 : new Date(a.lastActivity || 0).getTime();
+      const timeB = b.lastActivity?.seconds ? b.lastActivity.seconds * 1000 : new Date(b.lastActivity || 0).getTime();
+      return timeB - timeA;
+    });
+  }, [visitorCarts, cartFilter, cartSearch]);
+
   // Loading indicator states
   const [isLoading, setIsLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
 
   const [expandedSection, setExpandedSection] = useState<'beranda' | 'solusi' | 'keunggulan' | 'mitra' | 'katalog' | 'kontak' | 'admin'>('beranda');
+
+  // States for Promo Bundling Management
+  const [isBundleFormOpen, setIsBundleFormOpen] = useState(false);
+  const [editingBundle, setEditingBundle] = useState<Bundle | null>(null);
+  const [bundleId, setBundleId] = useState('');
+  const [bundleTitle, setBundleTitle] = useState('');
+  const [bundleDescription, setBundleDescription] = useState('');
+  const [bundleOriginalPrice, setBundleOriginalPrice] = useState(0);
+  const [bundlePromoPrice, setBundlePromoPrice] = useState(0);
+  const [bundleImageUrl, setBundleImageUrl] = useState('');
+  const [bundleItemsText, setBundleItemsText] = useState('');
+  const [bundleVisible, setBundleVisible] = useState(true);
+  const [bundleOrder, setBundleOrder] = useState(1);
 
   // Form states for Settings (Struktur Landing Page & WA & Pixels)
   const [settingsForm, setSettingsForm] = useState({
@@ -771,6 +919,154 @@ export default function AdminPanel({
       setTimeout(() => setStatusMsg(null), 3000);
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, `/products/${id}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // --- BUNDLE MANAGEMENT HANDLERS ---
+  
+  const handleOpenAddBundle = () => {
+    setEditingBundle(null);
+    setBundleId('bundle_' + Math.random().toString(36).substr(2, 9));
+    setBundleTitle('');
+    setBundleDescription('');
+    setBundleOriginalPrice(0);
+    setBundlePromoPrice(0);
+    setBundleImageUrl('');
+    setBundleItemsText('');
+    setBundleVisible(true);
+    setBundleOrder(currentBundles.length + 1);
+    setIsBundleFormOpen(true);
+  };
+
+  const handleOpenEditBundle = (bundle: Bundle) => {
+    setEditingBundle(bundle);
+    setBundleId(bundle.id);
+    setBundleTitle(bundle.title);
+    setBundleDescription(bundle.description);
+    setBundleOriginalPrice(bundle.originalPrice);
+    setBundlePromoPrice(bundle.promoPrice);
+    setBundleImageUrl(bundle.imageUrl || '');
+    setBundleItemsText((bundle.items || []).join('\n'));
+    setBundleVisible(bundle.visible !== false);
+    setBundleOrder(bundle.order || 1);
+    setIsBundleFormOpen(true);
+  };
+
+  const handleSaveBundle = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!bundleId.trim() || !bundleTitle.trim() || !bundleItemsText.trim() || bundleOriginalPrice <= 0 || bundlePromoPrice <= 0) {
+      alert("Harap lengkapi ID, Nama Paket, Isi Paket (min 1 item), serta Harga Normal & Promo.");
+      return;
+    }
+
+    const cleanId = bundleId.trim().toLowerCase().replace(/[^a-z0-9_\-]/g, '');
+    if (!cleanId) {
+      alert("ID Paket tidak valid. Gunakan huruf, angka, underscore, atau tanda hubung.");
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      setStatusMsg('Menyimpan bundle...');
+
+      const cleanItems = bundleItemsText
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line.length > 0);
+
+      const payload: Bundle = {
+        id: cleanId,
+        title: bundleTitle.trim(),
+        description: bundleDescription.trim(),
+        originalPrice: Number(bundleOriginalPrice),
+        promoPrice: Number(bundlePromoPrice),
+        imageUrl: bundleImageUrl.trim(),
+        items: cleanItems,
+        visible: bundleVisible,
+        order: Number(bundleOrder)
+      };
+
+      await setDoc(doc(db, 'bundles', payload.id), payload);
+
+      setStatusMsg(editingBundle ? 'Paket Bundling berhasil diperbarui!' : 'Paket Bundling berhasil ditambahkan!');
+      setIsBundleFormOpen(false);
+      setEditingBundle(null);
+      onRefreshData();
+      setTimeout(() => setStatusMsg(null), 3000);
+    } catch (err: any) {
+      console.error("Gagal menyimpan bundle: ", err);
+      alert("Gagal menyimpan paket bundling! Detail: " + (err.message || String(err)));
+      handleFirestoreError(err, OperationType.WRITE, `/bundles/${bundleId}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleDeleteBundle = async (id: string, title: string) => {
+    if (!window.confirm(`Apakah Anda yakin ingin menghapus paket bundling "${title}"?`)) {
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      setStatusMsg('Menghapus paket bundling...');
+      await deleteDoc(doc(db, 'bundles', id));
+      setStatusMsg('Paket bundling berhasil dihapus!');
+      onRefreshData();
+      setTimeout(() => setStatusMsg(null), 3000);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `/bundles/${id}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleToggleBundleVisibility = async (bundle: Bundle) => {
+    try {
+      setIsLoading(true);
+      const updatedVisible = bundle.visible === false ? true : false;
+      setStatusMsg(updatedVisible ? 'Mengaktifkan paket...' : 'Menyembunyikan paket...');
+      
+      const updatedBundle = {
+        ...bundle,
+        visible: updatedVisible
+      };
+
+      await setDoc(doc(db, 'bundles', bundle.id), updatedBundle);
+      
+      setStatusMsg(updatedVisible ? 'Paket Bundling berhasil diaktifkan!' : 'Paket Bundling berhasil disembunyikan!');
+      onRefreshData();
+      setTimeout(() => setStatusMsg(null), 3000);
+    } catch (err: any) {
+      console.error("Gagal mengubah status bundle: ", err);
+      alert("Gagal mengubah status paket bundling! Detail: " + (err.message || String(err)));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleToggleProductVisibility = async (product: Product) => {
+    try {
+      setIsLoading(true);
+      const updatedVisible = product.visible === false ? true : false;
+      setStatusMsg(updatedVisible ? 'Mengaktifkan produk...' : 'Menyembunyikan produk...');
+      
+      const updatedProduct = {
+        ...product,
+        visible: updatedVisible
+      };
+
+      await setDoc(doc(db, 'products', product.id), updatedProduct);
+      
+      setStatusMsg(updatedVisible ? 'Produk berhasil ditampilkan!' : 'Produk berhasil disembunyikan!');
+      onRefreshData();
+      setTimeout(() => setStatusMsg(null), 3000);
+    } catch (err: any) {
+      console.error("Gagal mengubah status produk: ", err);
+      alert("Gagal mengubah status produk! Detail: " + (err.message || String(err)));
     } finally {
       setIsLoading(false);
     }
@@ -1537,6 +1833,30 @@ export default function AdminPanel({
                 >
                   <Layers className="w-4 h-4" />
                   <span>Layout & Kategori</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('bundles')}
+                  className={`py-3 px-4 text-xs sm:text-sm font-black tracking-tight border-b-2 transition cursor-pointer flex items-center gap-1.5 ${
+                    activeTab === 'bundles'
+                      ? 'border-emerald-600 text-emerald-700 bg-white/50 rounded-t-xl'
+                      : 'border-transparent text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <Gift className="w-4 h-4" />
+                  <span>Promo Bundling ({currentBundles.length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('carts')}
+                  className={`py-3 px-4 text-xs sm:text-sm font-black tracking-tight border-b-2 transition cursor-pointer flex items-center gap-1.5 ${
+                    activeTab === 'carts'
+                      ? 'border-emerald-600 text-emerald-700 bg-white/50 rounded-t-xl'
+                      : 'border-transparent text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <ShoppingCart className="w-4 h-4" />
+                  <span>Keranjang Pengunjung ({cartStats.activeCount + cartStats.checkoutCount})</span>
                 </button>
               </div>
 
@@ -2547,15 +2867,18 @@ export default function AdminPanel({
                                       </h5>
                                       <div className="flex flex-wrap items-center gap-1.5 leading-none">
                                         <span className="text-[10px] text-slate-400 font-mono">ID: {prod.id} • / {prod.unit}</span>
-                                        {prod.visible === false ? (
-                                          <span className="bg-rose-50 text-rose-750 border border-rose-150 px-1 py-0.2 rounded text-[8px] font-bold tracking-tight uppercase font-mono">
-                                            Sembunyi
-                                          </span>
-                                        ) : (
-                                          <span className="bg-emerald-50 text-emerald-750 border border-emerald-100 px-1 py-0.2 rounded text-[8px] font-bold tracking-tight uppercase font-mono">
-                                            Tampil
-                                          </span>
-                                        )}
+                                        <button
+                                          type="button"
+                                          onClick={() => handleToggleProductVisibility(prod)}
+                                          className={`px-1 rounded text-[8px] font-bold tracking-tight uppercase font-mono border cursor-pointer hover:opacity-85 select-none transition ${
+                                            prod.visible === false
+                                              ? 'bg-rose-50 text-rose-750 border-rose-150 hover:bg-rose-100'
+                                              : 'bg-emerald-50 text-emerald-750 border-emerald-100 hover:bg-emerald-100'
+                                          }`}
+                                          title="Klik untuk mengubah visibilitas"
+                                        >
+                                          {prod.visible === false ? 'Sembunyi' : 'Tampil'}
+                                        </button>
                                       </div>
                                     </div>
                                   </td>
@@ -2982,15 +3305,18 @@ export default function AdminPanel({
                                     )}
                                   </td>
                                   <td className="p-3 text-center align-middle">
-                                    {prod.visible !== false ? (
-                                      <span className="bg-emerald-50 text-emerald-800 border border-emerald-150 px-1.5 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider font-mono">
-                                        Tampil
-                                      </span>
-                                    ) : (
-                                      <span className="bg-rose-50 text-rose-800 border border-rose-150 px-1.5 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider font-mono">
-                                        Sembunyi
-                                      </span>
-                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleProductVisibility(prod)}
+                                      className={`px-2 py-0.5 rounded-lg border font-bold uppercase text-[8px] tracking-wider font-mono cursor-pointer transition hover:opacity-85 active:scale-95 duration-100 ${
+                                        prod.visible !== false
+                                          ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                                          : 'bg-rose-50 text-rose-800 border-rose-200 hover:bg-rose-100'
+                                      }`}
+                                      title="Klik untuk Toggle Tampil/Sembunyi"
+                                    >
+                                      {prod.visible !== false ? 'Tampil' : 'Sembunyi'}
+                                    </button>
                                   </td>
                                   <td className="p-3 text-center align-middle">
                                     <div className="flex items-center gap-1.5 justify-center">
@@ -3023,6 +3349,714 @@ export default function AdminPanel({
                     })()}
                   </div>
 
+                </div>
+              )}
+
+              {/* TAB: PROMO BUNDLING CODES & CONFIG */}
+              {activeTab === 'bundles' && (
+                <div className="space-y-6 animate-fade-in text-slate-800">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-50 border border-slate-200/60 p-5 rounded-2xl">
+                    <div>
+                      <h3 className="font-extrabold text-lg text-slate-800 flex items-center gap-2">
+                        <span>🎁 Kelola Paket Promo Bundling</span>
+                      </h3>
+                      <p className="text-xs text-slate-500 leading-relaxed mt-0.5">
+                        Konfigurasikan paket bundling makanan bersuhu khusus & bahan masakan segar dengan satu harga spesial hemat.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleOpenAddBundle}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase tracking-wide px-4.5 py-3 rounded-xl flex items-center gap-2 shadow-md hover:scale-102 transition cursor-pointer"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Tambah Paket Bundling</span>
+                    </button>
+                  </div>
+
+                  {/* Bundles Grid */}
+                  {currentBundles.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                      {currentBundles.map((bundle) => {
+                        const saveAmount = bundle.originalPrice - bundle.promoPrice;
+                        return (
+                          <div
+                            key={bundle.id}
+                            className={`bg-white rounded-2xl border ${
+                              bundle.visible !== false ? 'border-slate-200 shadow-sm' : 'border-slate-200 opacity-60 bg-slate-50/50'
+                            } overflow-hidden flex flex-col justify-between`}
+                          >
+                            <div className="p-5 space-y-4">
+                              {/* Header info */}
+                              <div className="flex justify-between items-start gap-4">
+                                <div>
+                                  <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-slate-400 block">
+                                    ID: {bundle.id}
+                                  </span>
+                                  <h4 className="font-black text-base text-slate-800 line-clamp-1 mt-0.5">
+                                    {bundle.title}
+                                  </h4>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleBundleVisibility(bundle)}
+                                  className={`text-[9.5px] px-2 py-1 rounded-lg font-black uppercase tracking-wider cursor-pointer hover:opacity-85 active:scale-95 transition-all duration-150 flex items-center gap-1 ${
+                                    bundle.visible !== false
+                                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
+                                      : 'bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100'
+                                  }`}
+                                  title="Klik untuk mengubah status aktif"
+                                >
+                                  {bundle.visible !== false ? (
+                                    <>
+                                      <span className="h-1.5 w-1.5 bg-emerald-500 rounded-full animate-pulse shrink-0"></span>
+                                      <span>Aktif</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <span className="h-1.5 w-1.5 bg-rose-500 rounded-full shrink-0"></span>
+                                      <span>Draf / Sembunyi</span>
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+
+                              {/* Image and item summary review */}
+                              <div className="flex gap-4">
+                                <div className="w-20 h-20 bg-slate-100 rounded-xl overflow-hidden shrink-0 border border-slate-100">
+                                  {bundle.imageUrl ? (
+                                    <img
+                                      src={bundle.imageUrl}
+                                      alt={bundle.title}
+                                      referrerPolicy="no-referrer"
+                                      className="w-full h-full object-cover"
+                                    />
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center">
+                                      <Gift className="w-8 h-8 text-slate-350" />
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="flex-1 space-y-2">
+                                  <p className="text-[11px] text-slate-500 line-clamp-2 leading-relaxed">
+                                    {bundle.description || 'Tidak ada deskripsi.'}
+                                  </p>
+                                  <div className="text-[11px] font-bold text-slate-700">
+                                    💰 Paket: <span className="text-emerald-700 font-black">Rp {bundle.promoPrice.toLocaleString('id-ID')}</span>{' '}
+                                    <span className="text-slate-400 line-through text-[10px]">Rp {bundle.originalPrice.toLocaleString('id-ID')}</span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Items checklist preview inside admin */}
+                              <div className="bg-slate-50 rounded-xl p-3 border border-slate-200/50 space-y-1.5">
+                                <span className="text-[10px] uppercase tracking-wider font-extrabold text-slate-500 block">
+                                  📦 Komponen Terdaftar ({bundle.items?.length || 0}):
+                                </span>
+                                <div className="text-[11px] text-slate-600 space-y-1">
+                                  {bundle.items?.slice(0, 3).map((item, id) => (
+                                    <div key={id} className="flex items-center gap-1.5 truncate">
+                                      <span className="text-amber-500 shrink-0">✓</span>
+                                      <span className="truncate leading-none">{item}</span>
+                                    </div>
+                                  ))}
+                                  {bundle.items?.length > 3 && (
+                                    <span className="text-[10px] text-slate-400 italic block pl-4">
+                                      +{bundle.items.length - 3} item lainnya...
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Actions footer */}
+                            <div className="bg-slate-50 px-5 py-3 border-t border-slate-100 flex justify-between items-center gap-4 text-xs">
+                              <span className="font-bold text-slate-500 font-mono text-[10px]">
+                                Urutan: {bundle.order || 1}
+                              </span>
+                              <div className="flex gap-2 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleBundleVisibility(bundle)}
+                                  className={`p-1.5 rounded-lg border flex items-center justify-center cursor-pointer transition text-[11px] font-extrabold gap-1 ${
+                                    bundle.visible !== false
+                                      ? 'bg-amber-50 text-amber-700 hover:bg-amber-100 border-amber-200'
+                                      : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-250'
+                                  }`}
+                                  title={bundle.visible !== false ? 'Sembunyikan dari katalog' : 'Tampilkan di katalog'}
+                                >
+                                  {bundle.visible !== false ? (
+                                    <>
+                                      <EyeOff className="w-3.5 h-3.5" />
+                                      <span>Arsipkan</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Eye className="w-3.5 h-3.5" />
+                                      <span>Aktifkan</span>
+                                    </>
+                                  )}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenEditBundle(bundle)}
+                                  className="bg-sky-50 text-sky-700 hover:bg-sky-100 p-1.5 rounded-lg border border-sky-150 flex items-center justify-center cursor-pointer transition text-[11px] font-extrabold gap-1"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                  <span>Edit</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteBundle(bundle.id, bundle.title)}
+                                  className="bg-rose-50 text-rose-700 hover:bg-rose-100 p-1.5 rounded-lg border border-rose-150 flex items-center justify-center cursor-pointer transition text-[11px] font-extrabold gap-1"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span>Hapus</span>
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="text-center py-16 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                      <div className="w-16 h-16 bg-amber-50 text-amber-600 rounded-full flex items-center justify-center mx-auto shadow-inner">
+                        <Gift className="w-8 h-8" />
+                      </div>
+                      <div className="max-w-md mx-auto space-y-2">
+                        <h4 className="font-extrabold text-slate-800 text-lg">Belum Ada Paket Bundling</h4>
+                        <p className="text-xs text-slate-500 leading-relaxed">
+                          Anda belum mengonfigurasikan produk bundling khusus. Buat kombinasi barang pertama Anda sekarang dan tawarkan harga grosir praktis satu paket!
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleOpenAddBundle}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs uppercase px-5 py-3 rounded-xl transition cursor-pointer"
+                      >
+                        Buat Paket Pertama
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Dynamic Form Modal Block */}
+                  {isBundleFormOpen && (
+                    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                      <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-lg overflow-hidden animate-slide-in relative">
+                        {/* Modal Header */}
+                        <div className="bg-gradient-to-r from-emerald-600 to-emerald-800 text-white p-5 flex justify-between items-center">
+                          <div>
+                            <h3 className="font-black text-base flex items-center gap-1.5">
+                              <Gift className="w-5 h-5 text-amber-300" />
+                              <span>{editingBundle ? 'Edit Detail Paket Bundling' : 'Tambah Paket Bundling Baru'}</span>
+                            </h3>
+                            <p className="text-[10px] text-emerald-100 mt-0.5">
+                              {editingBundle ? 'Edit properti paket bundling yang sudah disimpan.' : 'Tentukan properti paket bundling yang dapat dibeli.'}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setIsBundleFormOpen(false)}
+                            className="bg-emerald-700/50 hover:bg-emerald-800 p-1.5 rounded-full transition cursor-pointer"
+                          >
+                            <X className="w-5 h-5 text-white" />
+                          </button>
+                        </div>
+
+                        {/* Modal Body Form */}
+                        <form onSubmit={handleSaveBundle} className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+                          {/* Row 1: ID & Order */}
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-xs font-extrabold text-slate-600 mb-1">
+                                ID Paket (Unik)*
+                              </label>
+                              <input
+                                type="text"
+                                value={bundleId}
+                                onChange={(e) => setBundleId(e.target.value.toLowerCase().replace(/[^a-z0-9_\-]/g, ''))}
+                                placeholder="misal: bundle_sop_lengkap"
+                                disabled={!!editingBundle}
+                                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs focus:bg-white focus:outline-emerald-600 disabled:opacity-50 font-mono"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-extrabold text-slate-600 mb-1">
+                                Urutan Tampil
+                              </label>
+                              <input
+                                type="number"
+                                value={bundleOrder}
+                                onChange={(e) => setBundleOrder(Math.max(1, Number(e.target.value)))}
+                                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs focus:bg-white focus:outline-emerald-600 font-mono"
+                              />
+                            </div>
+                          </div>
+
+                          {/* Row 2: Title / Nama Paket */}
+                          <div>
+                            <label className="block text-xs font-extrabold text-slate-600 mb-1">
+                              Nama Paket Bundling*
+                            </label>
+                            <input
+                              type="text"
+                              value={bundleTitle}
+                              onChange={(e) => setBundleTitle(e.target.value)}
+                              placeholder="misal: Paket Sop Sapi Kenyang"
+                              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs focus:bg-white focus:outline-emerald-600 font-bold"
+                            />
+                          </div>
+
+                          {/* Row 3: Description */}
+                          <div>
+                            <label className="block text-xs font-extrabold text-slate-600 mb-1">
+                              Deskripsi Singkat Paket
+                            </label>
+                            <textarea
+                              rows={2}
+                              value={bundleDescription}
+                              onChange={(e) => setBundleDescription(e.target.value)}
+                              placeholder="Fasilitasi deskripsi paket untuk memikat pembeli online..."
+                              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs focus:bg-white focus:outline-emerald-600 resize-none leading-relaxed"
+                            />
+                          </div>
+
+                          {/* Row 4: Image URL */}
+                          <div>
+                            <label className="block text-xs font-extrabold text-slate-600 mb-1">
+                              Link/URL Foto Paket Bundling (Opsional)
+                            </label>
+                            <input
+                              type="text"
+                              value={bundleImageUrl}
+                              onChange={(e) => setBundleImageUrl(e.target.value)}
+                              placeholder="https://images.unsplash.com/... atau kosongkan"
+                              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs focus:bg-white focus:outline-emerald-600 font-mono"
+                            />
+                          </div>
+
+                          {/* Row 5: Normal & Promo Price */}
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-xs font-extrabold text-slate-600 mb-1">
+                                Harga Normal (Rp)*
+                              </label>
+                              <input
+                                type="number"
+                                value={bundleOriginalPrice || ''}
+                                onChange={(e) => setBundleOriginalPrice(Number(e.target.value))}
+                                placeholder="misal: 45000"
+                                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs focus:bg-white focus:outline-emerald-600 font-mono font-bold"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-extrabold text-slate-600 mb-1">
+                                Harga Promo Paket (Rp)*
+                              </label>
+                              <input
+                                type="number"
+                                value={bundlePromoPrice || ''}
+                                onChange={(e) => setBundlePromoPrice(Number(e.target.value))}
+                                placeholder="misal: 38000"
+                                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs focus:bg-white focus:outline-emerald-600 font-mono font-bold text-rose-600"
+                              />
+                            </div>
+                          </div>
+
+                          {/* Row 6: Items list */}
+                          <div>
+                            <label className="block text-xs font-extrabold text-slate-600 mb-1 flex justify-between items-center">
+                              <span>Daftar Isi Paket (Satu item per baris)*</span>
+                              <span className="text-[10px] text-slate-400 font-normal">Min. 1 item</span>
+                            </label>
+                            <textarea
+                              rows={4}
+                              value={bundleItemsText}
+                              onChange={(e) => setBundleItemsText(e.target.value)}
+                              placeholder="misal:&#10;Daging Ayam Cincang 500g&#10;Bumbu Sop Instan Racik&#10;Kol Segar Kupas 200g"
+                              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs focus:bg-white focus:outline-emerald-600 font-mono leading-relaxed"
+                            />
+                            <p className="text-[10px] text-slate-400 mt-1">
+                              💡 Tuliskan setiap komponen penyusun paket, pisahkan dengan menekan <strong>Enter</strong> ke baris baru.
+                            </p>
+                          </div>
+
+                          {/* Row 7: Visible Switch */}
+                          <div className="flex items-center gap-2 pt-2">
+                            <input
+                              type="checkbox"
+                              id="bundleVisible"
+                              checked={bundleVisible}
+                              onChange={(e) => setBundleVisible(e.target.checked)}
+                              className="w-4.5 h-4.5 text-emerald-600 border-slate-300 rounded focus:ring-emerald-500 cursor-pointer"
+                            />
+                            <label htmlFor="bundleVisible" className="text-xs font-extrabold text-slate-700 cursor-pointer selection:bg-transparent">
+                              Aktifkan & Tampilkan Paket Bundling di Katalog Online
+                            </label>
+                          </div>
+
+                          {/* Form Footer */}
+                          <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                            <button
+                              type="button"
+                              onClick={() => setIsBundleFormOpen(false)}
+                              className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2.5 rounded-xl transition text-xs cursor-pointer"
+                            >
+                              Batal
+                            </button>
+                            <button
+                              type="submit"
+                              disabled={isLoading}
+                              className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold px-5 py-2.5 rounded-xl transition text-xs cursor-pointer flex items-center gap-1.5 shadow-md shadow-emerald-250 disabled:opacity-50"
+                            >
+                              <Save className="w-4 h-4" />
+                              <span>{editingBundle ? 'Simpan Perubahan' : 'Simpan Paket'}</span>
+                            </button>
+                          </div>
+                        </form>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* TAB: SHOPPING CARTS VISITOR LIST */}
+              {activeTab === 'carts' && (
+                <div className="space-y-6 animate-fade-in text-slate-800">
+                  {/* Top Header Card */}
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-50 border border-slate-200/60 p-5 rounded-2xl">
+                    <div>
+                      <h3 className="font-extrabold text-lg text-slate-800 flex items-center gap-2">
+                        <ShoppingCart className="w-5 h-5 text-emerald-600" />
+                        <span>🛒 Daftar Keranjang Belanja Pengunjung</span>
+                      </h3>
+                      <p className="text-xs text-slate-500 leading-relaxed mt-0.5">
+                        Pantau aktivitas troli belanja pengunjung, calon pembeli potensial, serta transaksi yang belum terselesaikan untuk follow up.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={fetchAnalytics}
+                      className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-extrabold text-xs uppercase tracking-wide px-4.5 py-2.5 rounded-xl flex items-center gap-2 border border-slate-200 cursor-pointer active:scale-95 transition-all"
+                      title="Sinkronisasi log troli terbaru dari server"
+                    >
+                      <RefreshCw className="w-4 h-4 animate-spin-slow" />
+                      <span>Refresh Data</span>
+                    </button>
+                  </div>
+
+                  {/* Analytics Stats Cards Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                    {/* Active Carts Value card */}
+                    <div className="bg-amber-50/50 border border-amber-200/60 rounded-2xl p-4.5 flex flex-col justify-between">
+                      <div className="flex justify-between items-start">
+                        <span className="text-[10px] font-black uppercase text-amber-800 tracking-wider font-mono">Troli Aktif / Ditinggal</span>
+                        <div className="h-2 w-2 rounded-full bg-amber-500 animate-pulse"></div>
+                      </div>
+                      <div className="mt-2">
+                        <p className="text-2xl font-black text-slate-900 font-mono">
+                          Rp {cartStats.abandonedTotalValue.toLocaleString('id-ID')}
+                        </p>
+                        <p className="text-[11px] text-slate-500 font-bold mt-1">
+                          Dari <span className="text-amber-700 font-extrabold">{cartStats.activeCount + cartStats.checkoutCount} keranjang</span> pengunjung belum checkout.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Completed Carts Value card */}
+                    <div className="bg-emerald-50/50 border border-emerald-200/60 rounded-2xl p-4.5 flex flex-col justify-between">
+                      <div className="flex justify-between items-start">
+                        <span className="text-[10px] font-black uppercase text-emerald-800 tracking-wider font-mono">Transaksi Sukses</span>
+                        <span className="text-[9px] bg-emerald-100/80 text-emerald-700 font-black px-1.5 py-0.5 rounded font-mono uppercase">Done</span>
+                      </div>
+                      <div className="mt-2">
+                        <p className="text-2xl font-black text-slate-900 font-mono">
+                          Rp {cartStats.completedTotalValue.toLocaleString('id-ID')}
+                        </p>
+                        <p className="text-[11px] text-slate-500 font-bold mt-1">
+                          Akumulasi dari <span className="text-emerald-700 font-extrabold">{cartStats.completedCount} pesanan</span> terkonfirmasi di WhatsApp.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Conversion Rate Card */}
+                    <div className="bg-sky-50/50 border border-sky-200/60 rounded-2xl p-4.5 flex flex-col justify-between sm:col-span-2 lg:col-span-1">
+                      <div className="flex justify-between items-start">
+                        <span className="text-[10px] font-black uppercase text-sky-800 tracking-wider font-mono">Asumsi Rasio Konversi Resmi</span>
+                        <span className="text-[12px]">📊</span>
+                      </div>
+                      <div className="mt-2">
+                        <p className="text-2xl font-black text-slate-900 font-mono">
+                          {((cartStats.completedCount / (cartStats.totalCount || 1)) * 100).toFixed(1)}%
+                        </p>
+                        <p className="text-[11px] text-slate-500 font-bold mt-1">
+                          Dari total <span className="text-sky-700 font-extrabold">{cartStats.totalCount} interaksi</span> berbelanja teridentifikasi sistem.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Filter & Search Bar */}
+                  <div className="bg-white border border-slate-200 rounded-2xl p-4.5 flex flex-col md:flex-row gap-4 items-center justify-between shadow-sm">
+                    {/* Pills Filter selection */}
+                    <div className="flex flex-wrap gap-1.5 self-start md:self-auto">
+                      <button
+                        type="button"
+                        onClick={() => setCartFilter('all')}
+                        className={`text-xs font-black px-4 py-2 rounded-lg transition-all cursor-pointer ${
+                          cartFilter === 'all'
+                            ? 'bg-slate-900 text-white shadow-sm'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        }`}
+                      >
+                        Semua ({visitorCarts.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCartFilter('active')}
+                        className={`text-xs font-black px-4 py-2 rounded-lg transition-all cursor-pointer ${
+                          cartFilter === 'active'
+                            ? 'bg-amber-600 text-white shadow-sm'
+                            : 'bg-amber-50 text-amber-700 hover:bg-amber-100/80 border border-amber-200/45'
+                        }`}
+                      >
+                        Aktif di Troli ({cartStats.activeCount})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCartFilter('checkout')}
+                        className={`text-xs font-black px-4 py-2 rounded-lg transition-all cursor-pointer ${
+                          cartFilter === 'checkout'
+                            ? 'bg-indigo-600 text-white shadow-sm'
+                            : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100/80 border border-indigo-200/45'
+                        }`}
+                      >
+                        Proses Checkout ({cartStats.checkoutCount})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCartFilter('completed')}
+                        className={`text-xs font-black px-4 py-2 rounded-lg transition-all cursor-pointer ${
+                          cartFilter === 'completed'
+                            ? 'bg-emerald-600 text-white shadow-sm'
+                            : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100/80 border border-emerald-200/45'
+                        }`}
+                      >
+                        Selesai Belanja ({cartStats.completedCount})
+                      </button>
+                    </div>
+
+                    {/* Search Field */}
+                    <div className="w-full md:w-72 relative">
+                      <input
+                        type="text"
+                        value={cartSearch}
+                        onChange={(e) => setCartSearch(e.target.value)}
+                        placeholder="Cari pelanggan, WA, atau isi barang..."
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9.5 pr-4 py-2 text-xs font-bold leading-normal focus:bg-white focus:outline-emerald-600 text-slate-800"
+                      />
+                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs">🔍</span>
+                      {cartSearch && (
+                        <button
+                          type="button"
+                          onClick={() => setCartSearch('')}
+                          className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 font-extrabold text-[10px]"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Carts Records View Grid */}
+                  {filteredVisitorCarts.length === 0 ? (
+                    <div className="text-center py-16 bg-white border border-slate-200 rounded-2.5xl space-y-3 shadow-inner">
+                      <span className="text-4xl text-slate-350 block">🛒</span>
+                      <h4 className="font-extrabold text-slate-700">Tidak ada keranjang teridentifikasi</h4>
+                      <p className="text-xs text-slate-450 max-w-md mx-auto leading-relaxed">
+                        Kami tidak menemukan catatan troli belanja yang cocok dengan kriteria filter "{cartFilter}" atau pencarian Anda. Pastikan pixel log berisi peristiwa AddToCart.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      {filteredVisitorCarts.map((cart, idx) => {
+                        const itemsSubtotal = cart.items.reduce((sum: number, it: any) => sum + (Number(it.price || 0) * Number(it.quantity || 1)), 0);
+                        const finalCartValue = cart.status === 'Completed' ? (cart.purchaseTotal || itemsSubtotal) : itemsSubtotal;
+                        
+                        const dateFormatted = cart.lastActivity?.seconds 
+                          ? new Date(cart.lastActivity.seconds * 1000).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })
+                          : new Date().toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' });
+
+                        // Buyer type badge color
+                        let buyerBadgeColor = 'bg-slate-100 text-slate-650';
+                        let buyerBadgeLabel = 'Personal / Retail';
+                        if (cart.buyerType === 'reseller') {
+                          buyerBadgeColor = 'bg-emerald-100 text-emerald-800 border border-emerald-200';
+                          buyerBadgeLabel = 'Reseller / Mitra';
+                        } else if (cart.buyerType === 'umkm') {
+                          buyerBadgeColor = 'bg-sky-100 text-sky-800 border border-sky-200';
+                          buyerBadgeLabel = 'Mitra UMKM';
+                        } else if (cart.buyerType === 'household') {
+                          buyerBadgeColor = 'bg-amber-100 text-amber-800 border border-amber-200';
+                          buyerBadgeLabel = 'Rumah Tangga';
+                        }
+
+                        // Status definitions
+                        let statusColor = 'bg-slate-100 text-slate-700';
+                        let statusLabel = 'Offline';
+                        if (cart.status === 'Active') {
+                          statusColor = 'bg-blue-50 text-blue-700 border border-blue-200';
+                          statusLabel = 'Aktif di Troli';
+                        } else if (cart.status === 'Checkout') {
+                          statusColor = 'bg-amber-50 text-amber-700 border border-amber-250';
+                          statusLabel = 'Proses Checkout';
+                        } else if (cart.status === 'Completed') {
+                          statusColor = 'bg-emerald-50 text-emerald-700 border border-emerald-200';
+                          statusLabel = 'Selesai Belanja';
+                        }
+
+                        // Generate WA Message Link
+                        const cleanPhone = (phone: string) => {
+                          let p = phone.replace(/[^0-9]/g, '');
+                          if (p.startsWith('0')) {
+                            p = '62' + p.slice(1);
+                          }
+                          return p;
+                        };
+
+                        const bulletListStr = cart.items.map((it: any) => `• ${it.name} (${it.quantity}x) @ Rp ${Number(it.price || 0).toLocaleString('id-ID')}`).join('\n');
+                        
+                        let waMessage = '';
+                        if (cart.status === 'Completed') {
+                          waMessage = `Halo Kak *${cart.customerName}*,\n\nTerima kasih banyak telah berbelanja senilai *Rp ${finalCartValue.toLocaleString('id-ID')}* di *Haylofress Ngawi*! 😊\n\nSeluruh bahan makanan segar pilihan Kakak telah kami catat dengan rincian:\n${bulletListStr}\n\nApabila ada saran atau masukan terkait pesanan Kakak, silakan beri tahu kami ya. Have a fresh day! 🌿`;
+                        } else {
+                          waMessage = `Halo Kak *${cart.customerName}*,\n\nSaya Admin dari *Haylofress Ngawi* 🌿. Kami melihat Kakak baru saja memasukkan beberapa item segar berikut ke troli belanja:\n\n${bulletListStr}\n\n*Total Nilai Troli: Rp ${finalCartValue.toLocaleString('id-ID')}*\n\nApakah ada kendala yang dihadapi saat pemesanan? Kakak bisa langsung membalas pesan ini untuk konfirmasi pesanan agar dapat segera kami siapkan dan kirim ya. Terima kasih banyak! 😊`;
+                        }
+
+                        const targetWaUrl = `https://wa.me/${cleanPhone(cart.customerPhone)}?text=${encodeURIComponent(waMessage)}`;
+
+                        return (
+                          <div key={cart.id || idx} className="bg-white border border-slate-200 rounded-2xl p-5 flex flex-col justify-between shadow-sm hover:shadow-md transition duration-200 relative">
+                            {/* Card Header information */}
+                            <div className="space-y-3">
+                              <div className="flex items-start justify-between gap-2.5">
+                                <div className="flex items-center gap-2.5">
+                                  {/* Avatar Initials */}
+                                  <div className="h-9 w-9 bg-slate-100 rounded-full flex items-center justify-center font-black text-slate-700 text-xs border border-slate-200 uppercase">
+                                    {cart.customerName.slice(0, 2)}
+                                  </div>
+                                  <div>
+                                    <h4 className="font-extrabold text-slate-900 text-sm leading-tight flex items-center gap-1.5 flex-wrap">
+                                      <span>{cart.customerName}</span>
+                                      <span className={`text-[8.5px] px-1.5 py-0.2 rounded font-extrabold tracking-wide font-mono uppercase ${buyerBadgeColor}`}>
+                                        {buyerBadgeLabel}
+                                      </span>
+                                    </h4>
+                                    <p className="text-xs text-slate-450 font-mono mt-0.5">
+                                      📞 {cart.customerPhone !== '-' ? cart.customerPhone : 'Tanpa Nomer WA'}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <span className={`text-[9px] px-2 py-0.5 rounded-lg border font-black uppercase tracking-wider flex items-center gap-1 ${statusColor}`}>
+                                  {cart.status === 'Active' && <span className="h-1.5 w-1.5 bg-blue-500 rounded-full animate-pulse" />}
+                                  {cart.status === 'Checkout' && <span className="h-1.5 w-1.5 bg-amber-500 rounded-full animate-pulse" />}
+                                  {cart.status === 'Completed' && <span className="h-1.5 w-1.5 bg-emerald-500 rounded-full" />}
+                                  <span>{statusLabel}</span>
+                                </span>
+                              </div>
+
+                              {/* Timestamp details */}
+                              <div className="text-[10.5px] text-slate-400 font-mono flex items-center gap-1 border-b border-slate-150 pb-2.5 leading-none">
+                                <span>⏱️ Aktivitas Terakhir:</span>
+                                <span className="text-slate-500 font-extrabold uppercase">{dateFormatted} WIB</span>
+                              </div>
+
+                              {/* Cart Items List Render */}
+                              <div className="space-y-2">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">
+                                  Daftar Produk di Troli ({cart.items.length} item):
+                                </p>
+                                <div className="bg-slate-50 rounded-xl border border-slate-150 p-3 space-y-2 max-h-36 overflow-y-auto">
+                                  {cart.items.map((item: any, i: number) => {
+                                    const priceVal = Number(item.price || 0);
+                                    const qtyVal = Number(item.quantity || 1);
+                                    const itemTot = priceVal * qtyVal;
+                                    return (
+                                      <div key={i} className="flex justify-between items-center text-xs text-slate-700 last:border-0 pb-1.5 border-b border-slate-150/40 last:pb-0 font-mono">
+                                        <div className="font-bold flex items-center gap-1 leading-normal text-left truncate">
+                                          <span className="text-emerald-600 font-black">🌱</span>
+                                          <span className="truncate max-w-[200px]">{item.name}</span>
+                                        </div>
+                                        <div className="shrink-0 text-slate-500 font-semibold ml-2 text-right">
+                                          <span>{qtyVal}x</span>
+                                          <span className="mx-1 text-slate-300">•</span>
+                                          <span className="text-slate-800 font-bold">Rp {itemTot.toLocaleString('id-ID')}</span>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+
+                              {/* Delivery info extracted from complete checkpoint if exists */}
+                              {(cart.address || cart.notes) && (
+                                <div className="p-2.5 bg-slate-50 border border-slate-200 border-dashed rounded-xl space-y-1.5 text-[11px] text-slate-600 leading-relaxed text-left">
+                                  {cart.address && (
+                                    <p>
+                                      📍 <strong className="text-slate-700">Alamat:</strong> {cart.address}
+                                    </p>
+                                  )}
+                                  {cart.notes && (
+                                    <p>
+                                      📝 <strong className="text-slate-700">Catatan Khusus:</strong> "{cart.notes}"
+                                    </p>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Cart value & quick conversion buttons */}
+                            <div className="mt-4 pt-3.5 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/50 -mx-5 -mb-5 p-5 rounded-b-2xl">
+                              <div>
+                                <span className="text-[9px] font-black uppercase tracking-wider text-slate-450 font-mono">
+                                  {cart.status === 'Completed' ? 'Total Nilai Belanjaan:' : 'Total Potensi Pendapatan:'}
+                                </span>
+                                <p className="text-base font-black text-slate-900 font-mono leading-none mt-0.5">
+                                  Rp {finalCartValue.toLocaleString('id-ID')}
+                                </p>
+                              </div>
+
+                              <div className="flex gap-2">
+                                {cart.customerPhone !== '-' ? (
+                                  <a
+                                    href={targetWaUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className={`text-xs font-black uppercase tracking-wide px-4 py-2.5 rounded-xl flex items-center gap-1.5 shadow-sm active:scale-95 transition-all text-center justify-center cursor-pointer ${
+                                      cart.status === 'Completed'
+                                        ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                                        : 'bg-indigo-600 text-white hover:bg-indigo-705'
+                                    }`}
+                                  >
+                                    <MessageSquare className="w-4 h-4" />
+                                    <span>
+                                      {cart.status === 'Completed' ? 'Follow Up / Tq WA' : 'Chat Follow Up WA'}
+                                    </span>
+                                  </a>
+                                ) : (
+                                  <div className="text-[10px] text-slate-400 italic flex items-center">
+                                    No WA Tidak Tersedia
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -3209,6 +4243,7 @@ export default function AdminPanel({
                               
                               let badgeColor = 'bg-slate-850 text-slate-300 border-slate-800';
                               if (log.eventName === 'AddToCart') badgeColor = 'bg-blue-950 text-blue-300 border-blue-900 border';
+                              if (log.eventName === 'CartUpdate') badgeColor = 'bg-indigo-950 text-indigo-300 border-indigo-900 border';
                               if (log.eventName === 'InitiateCheckout') badgeColor = 'bg-amber-950 text-amber-300 border-amber-900 border';
                               if (log.eventName === 'Purchase') badgeColor = 'bg-pink-950 text-pink-300 border-pink-900 border';
                               if (log.eventName === 'PageView') badgeColor = 'bg-emerald-950 text-emerald-300 border-emerald-900 border';
@@ -3224,7 +4259,9 @@ export default function AdminPanel({
                                         {log.eventName === 'Purchase' 
                                           ? `Transaksi: Rp ${(log.params?.value || 0).toLocaleString('id-ID')}` 
                                           : log.eventName === 'AddToCart'
-                                          ? `Belanja: ${log.params?.content_name || 'barang'}`
+                                          ? `Tambah Troli: ${log.params?.content_name || 'barang'} (${log.params?.quantity || 1}x)`
+                                          : log.eventName === 'CartUpdate'
+                                          ? `Mengubah Belanjaan`
                                           : log.eventName === 'InitiateCheckout'
                                           ? `Checkout: Rp ${(log.params?.value || 0).toLocaleString('id-ID')}`
                                           : `Kunjungan Landing Page`}
@@ -3235,30 +4272,49 @@ export default function AdminPanel({
                                     </span>
                                   </div>
 
-                                  {/* Capture and display detailed customer context on completed Purchase */}
-                                  {log.eventName === 'Purchase' && (log.params?.customer_name || log.params?.customer_phone) && (
-                                    <div className="mt-1.5 p-2 px-2.5 bg-slate-950/60 border border-slate-900 rounded-lg space-y-1 text-slate-300 text-[11px] leading-relaxed select-all">
+                                  {/* Capture and display detailed customer context on completed Purchase, AddToCart, or CartUpdate */}
+                                  {(log.eventName === 'Purchase' || log.eventName === 'AddToCart' || log.eventName === 'CartUpdate') && (log.params?.customer_name || log.params?.customer_phone) && (
+                                    <div className="mt-1.5 p-2 px-2.5 bg-slate-950/65 border border-slate-900 rounded-lg space-y-1 text-slate-300 text-[11px] leading-relaxed select-all animate-fade-in">
                                       <div className="flex items-center gap-1 flex-wrap">
-                                        <span className="text-slate-400 font-semibold">Nama:</span>
+                                        <span className="text-slate-400 font-semibold">{log.eventName === 'Purchase' ? 'Pembeli:' : 'Calon Pembeli:'}</span>
                                         <span className="text-white font-extrabold">{log.params?.customer_name || '-'}</span>
                                         <span className="text-[8px] bg-emerald-950 text-emerald-400 border border-emerald-900 px-1 py-0.2 rounded font-black uppercase tracking-wider">
-                                          {log.params?.buyer_type === 'reseller' ? 'Reseller / Mitra' : 'Personal'}
+                                          {log.params?.buyer_type === 'reseller' ? 'Reseller / Mitra' : log.params?.buyer_type === 'umkm' ? 'UMKM' : 'Rumah Tangga'}
                                         </span>
                                       </div>
                                       
-                                      <div className="flex items-center gap-1 flex-wrap">
-                                        <span className="text-slate-400 font-semibold">WhatsApp:</span>
-                                        <a
-                                          href={`https://wa.me/${log.params?.customer_phone}`}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          className="text-emerald-400 hover:underline font-bold font-mono flex items-center gap-0.5"
-                                        >
-                                          +{log.params?.customer_phone} 🔗
-                                        </a>
+                                      <div className="flex items-center gap-1 flex-wrap font-mono">
+                                        <span className="text-slate-500 font-semibold">WhatsApp:</span>
+                                        {log.params?.customer_phone && log.params?.customer_phone !== '-' ? (
+                                          <a
+                                            href={`https://wa.me/${log.params?.customer_phone}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-emerald-400 hover:underline font-bold flex items-center gap-0.5"
+                                          >
+                                            +{log.params?.customer_phone} 🔗
+                                          </a>
+                                        ) : (
+                                          <span className="text-slate-600 font-bold">-</span>
+                                        )}
                                       </div>
+
+                                      {/* Highlight items inside cart for AddToCart or CartUpdate */}
+                                      {log.params?.cart_items && Array.isArray(log.params.cart_items) && log.params.cart_items.length > 0 && (
+                                        <div className="pt-1 mt-1 border-t border-slate-900/60 space-y-0.5">
+                                          <span className="text-slate-500 font-semibold block text-[9.5px] uppercase font-mono tracking-wide">Troli Saat Ini ({log.params.cart_items.length}):</span>
+                                          <div className="space-y-0.5 pl-1">
+                                            {log.params.cart_items.map((it: any, itIdx: number) => (
+                                              <div key={itIdx} className="text-slate-300 flex justify-between gap-1 max-w-xs text-[10px]">
+                                                <span className="truncate font-medium text-emerald-300">🌿 {it.name}</span>
+                                                <span className="font-bold text-slate-400">({it.quantity}x)</span>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      )}
                                       
-                                      {log.params?.customer_address && (
+                                      {log.eventName === 'Purchase' && log.params?.customer_address && (
                                         <div className="flex items-start gap-1">
                                           <span className="text-slate-400 font-semibold flex-shrink-0">Lokasi:</span>
                                           <span className="text-slate-300 font-medium text-left">{log.params?.customer_address}</span>
