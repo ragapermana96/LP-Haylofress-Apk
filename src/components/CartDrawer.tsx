@@ -162,12 +162,14 @@ export default function CartDrawer({
       itemLines += `   Subtotal: Rp ${sub.toLocaleString('id-ID')}\n\n`;
     });
 
+    const mapsLinkLine = customerInfo.mapsLink?.trim() ? `🗺️ Google Maps: ${customerInfo.mapsLink.trim()}\n` : '';
+
     const titleMessage = `*PESANAN BARU - HAYLOFRESS NGAWI*`;
     const customerBlock = `*DATA PELANGGAN:*
 👤 Nama: ${customerInfo.name}
 📱 WhatsApp: ${customerInfo.phone}
 🏠 Alamat: ${customerInfo.address}
-🏬 Tipe Mitra: ${buyerTypeLabel}
+${mapsLinkLine}🏬 Tipe Mitra: ${buyerTypeLabel}
 📝 Catatan: ${customerInfo.notes.trim() ? customerInfo.notes : '-'}`;
 
     const cartBlock = `*RINCIAN DAFTAR PESANAN:*
@@ -198,6 +200,7 @@ Total Hemat Diskon: Rp ${cartSummary.savings.toLocaleString('id-ID')}
       customer_phone: customerInfo.phone,
       customer_address: customerInfo.address,
       customer_notes: customerInfo.notes,
+      customer_maps_link: customerInfo.mapsLink || '',
       items: cart.map(item => {
         const priceDetail = getProductPriceDetail(item.product, item.quantity);
         return {
@@ -466,6 +469,29 @@ Total Hemat Diskon: Rp ${cartSummary.savings.toLocaleString('id-ID')}
                           rows={2}
                           placeholder="Nama jalan, nama perumahan, gang, nomor rumah, RT/RW, kelurahan/kecamatan di Kabupaten Ngawi."
                           className="w-full bg-white/50 backdrop-blur-md border border-slate-200/70 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:outline-emerald-600 focus:border-emerald-600 transition resize-none shadow-inner"
+                        />
+                      </div>
+
+                      {/* Google Maps Link */}
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
+                          <span>Link Google Maps <span className="text-slate-400">(Opsional)</span></span>
+                          <a
+                            href="https://maps.google.com"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[10px] text-emerald-600 font-extrabold hover:underline flex items-center gap-0.5 cursor-pointer"
+                          >
+                            Buka Maps 🗺️
+                          </a>
+                        </label>
+                        <input
+                          type="url"
+                          name="mapsLink"
+                          value={customerInfo.mapsLink || ''}
+                          onChange={handleInputChange}
+                          placeholder="Salin/paste link lokasi Google Maps di sini (Contoh: https://maps.app.goo.gl/...)"
+                          className="w-full bg-white/50 backdrop-blur-md border border-slate-200/70 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:outline-emerald-600 focus:border-emerald-600 transition shadow-inner"
                         />
                       </div>
 

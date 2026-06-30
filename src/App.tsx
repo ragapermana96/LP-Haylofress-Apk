@@ -90,6 +90,7 @@ export default function App() {
       address: '',
       notes: '',
       buyerType: 'rumah_tangga',
+      mapsLink: '',
     };
   });
 

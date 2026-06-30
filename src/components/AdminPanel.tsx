@@ -133,8 +133,20 @@ export default function AdminPanel({
           purchaseTotal: 0,
           notes: '',
           address: '',
+          mapsLink: '',
           lastUpdateTime: log.timestamp,
         };
+      }
+
+      // Capture metadata if present in any of the events
+      if (log.params?.customer_address) {
+        cartsMap[key].address = log.params.customer_address;
+      }
+      if (log.params?.customer_notes) {
+        cartsMap[key].notes = log.params.customer_notes;
+      }
+      if (log.params?.customer_maps_link) {
+        cartsMap[key].mapsLink = log.params.customer_maps_link;
       }
 
       // Chronological state machine updates
@@ -162,6 +174,7 @@ export default function AdminPanel({
         cartsMap[key].purchaseTotal = Number(log.params?.value || 0);
         cartsMap[key].address = log.params?.customer_address || cartsMap[key].address;
         cartsMap[key].notes = log.params?.customer_notes || cartsMap[key].notes;
+        cartsMap[key].mapsLink = log.params?.customer_maps_link || cartsMap[key].mapsLink;
         
         const rawItems = log.params?.items || log.params?.cart_items || [];
         if (Array.isArray(rawItems) && rawItems.length > 0) {
@@ -4001,11 +4014,24 @@ export default function AdminPanel({
                               </div>
 
                               {/* Delivery info extracted from complete checkpoint if exists */}
-                              {(cart.address || cart.notes) && (
+                              {(cart.address || cart.notes || cart.mapsLink) && (
                                 <div className="p-2.5 bg-slate-50 border border-slate-200 border-dashed rounded-xl space-y-1.5 text-[11px] text-slate-600 leading-relaxed text-left">
                                   {cart.address && (
                                     <p>
                                       📍 <strong className="text-slate-700">Alamat:</strong> {cart.address}
+                                    </p>
+                                  )}
+                                  {cart.mapsLink && (
+                                    <p>
+                                      🗺️ <strong className="text-slate-700">Google Maps:</strong>{' '}
+                                      <a
+                                        href={cart.mapsLink}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-emerald-600 font-black hover:underline break-all"
+                                      >
+                                        {cart.mapsLink}
+                                      </a>
                                     </p>
                                   )}
                                   {cart.notes && (
