@@ -5,7 +5,7 @@ import {
   Settings, ShoppingBag, Phone, AlertCircle, RefreshCw, Key, Image, HelpCircle, UserPlus,
   Sparkles, Users, Home, Upload, Layers, ArrowUp, ArrowDown, FileSpreadsheet, Gift, Eye, EyeOff,
   ShoppingCart, MessageSquare, TrendingUp, Clipboard, Package, Star, BarChart2, Tag, Truck, Printer, 
-  Clock, Check, Calendar, AlertTriangle, UserCheck
+  Clock, Check, Calendar, AlertTriangle, UserCheck, Menu
 } from 'lucide-react';
 import { db, auth, handleFirestoreError, OperationType } from '../firebase';
 import { 
@@ -52,6 +52,7 @@ export default function AdminPanel({
     }
   });
   const [activeTab, setActiveTab] = useState<'dashboard' | 'landing' | 'products' | 'whatsapp' | 'admins' | 'layout-order' | 'bundles' | 'carts'>('dashboard');
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [activeDashboardSubTab, setActiveDashboardSubTab] = useState<'sales' | 'orders' | 'products' | 'performance' | 'analytics' | 'promotions' | 'shipping'>('sales');
   
   // Dashboard Interactive States
@@ -2049,7 +2050,17 @@ export default function AdminPanel({
         {/* Panel Header */}
         <div className="p-5 border-b border-slate-200 bg-white flex items-center justify-between sticky top-0 z-10 shadow-sm">
           <div className="flex items-center gap-3">
-            <div className="bg-slate-900 text-white p-2.5 rounded-xl">
+            {isAdminLoggedIn && (
+              <button
+                type="button"
+                onClick={() => setIsMobileSidebarOpen(prev => !prev)}
+                className="md:hidden bg-slate-900 hover:bg-slate-800 text-white p-2.5 rounded-xl cursor-pointer transition focus:outline-none flex items-center justify-center shadow-sm animate-pulse"
+                title="Buka Menu"
+              >
+                <Menu className="w-5 h-5 text-emerald-400" />
+              </button>
+            )}
+            <div className={`${isAdminLoggedIn ? 'hidden md:flex' : 'flex'} bg-slate-900 text-white p-2.5 rounded-xl`}>
               <Lock className="w-5 h-5 text-emerald-400" />
             </div>
             <div>
@@ -2185,26 +2196,47 @@ export default function AdminPanel({
             </div>
           ) : (
             /* CONTROL PANEL CONTENT (LOGGED IN) */
-            <div className="flex-1 flex flex-col md:flex-row overflow-hidden w-full h-full">
+            <div className="flex-1 flex flex-col md:flex-row overflow-hidden w-full h-full relative">
               
-              {/* LEFT SIDEBAR */}
-              <div className="w-full md:w-72 bg-slate-900 text-slate-300 border-b md:border-b-0 md:border-r border-slate-800 flex flex-col shrink-0 overflow-y-auto">
+              {/* BACKDROP OVERLAY FOR MOBILE SIDEBAR */}
+              {isMobileSidebarOpen && (
+                <div 
+                  className="fixed inset-0 bg-slate-950/70 z-30 md:hidden transition-opacity duration-300"
+                  onClick={() => setIsMobileSidebarOpen(false)}
+                />
+              )}
+
+              {/* LEFT SIDEBAR (SLIDING DRAWER ON MOBILE, FIXED ON DESKTOP) */}
+              <div className={`
+                fixed inset-y-0 left-0 z-40 w-72 bg-slate-900 text-slate-300 border-r border-slate-800 flex flex-col shrink-0 overflow-y-auto transition-transform duration-300 ease-in-out md:static md:translate-x-0
+                ${isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+              `}>
                 {/* Brand / Title section */}
-                <div className="p-5 border-b border-slate-800 flex items-center gap-3 bg-slate-950">
-                  <div className="bg-emerald-600 text-white p-2 rounded-xl">
-                    <Home className="w-4 h-4 text-emerald-100" />
+                <div className="p-5 border-b border-slate-800 flex items-center justify-between bg-slate-950">
+                  <div className="flex items-center gap-3">
+                    <div className="bg-emerald-600 text-white p-2 rounded-xl">
+                      <Home className="w-4 h-4 text-emerald-100" />
+                    </div>
+                    <div>
+                      <h3 className="text-xs font-black text-white tracking-tight uppercase">Haylofress ERP</h3>
+                      <p className="text-[9px] text-emerald-400 font-mono font-bold uppercase tracking-wider">Control Hub</p>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="text-xs font-black text-white tracking-tight uppercase">Haylofress ERP</h3>
-                    <p className="text-[9px] text-emerald-400 font-mono font-bold uppercase tracking-wider">Control Hub</p>
-                  </div>
+                  {/* Close button inside sidebar on mobile */}
+                  <button
+                    type="button"
+                    onClick={() => setIsMobileSidebarOpen(false)}
+                    className="md:hidden p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-slate-200 transition"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
                 </div>
 
                 {/* Vertical menu tabs */}
                 <div className="p-4 flex-1 space-y-1.5">
                   <button
                     type="button"
-                    onClick={() => setActiveTab('dashboard')}
+                    onClick={() => { setActiveTab('dashboard'); setIsMobileSidebarOpen(false); }}
                     className={`w-full py-3 px-4 text-xs font-black rounded-xl transition cursor-pointer flex items-center gap-3 text-left ${
                       activeTab === 'dashboard'
                         ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
@@ -2217,7 +2249,7 @@ export default function AdminPanel({
 
                   <button
                     type="button"
-                    onClick={() => setActiveTab('whatsapp')}
+                    onClick={() => { setActiveTab('whatsapp'); setIsMobileSidebarOpen(false); }}
                     className={`w-full py-3 px-4 text-xs font-black rounded-xl transition cursor-pointer flex items-center gap-3 text-left ${
                       activeTab === 'whatsapp'
                         ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
@@ -2230,7 +2262,7 @@ export default function AdminPanel({
 
                   <button
                     type="button"
-                    onClick={() => setActiveTab('carts')}
+                    onClick={() => { setActiveTab('carts'); setIsMobileSidebarOpen(false); }}
                     className={`w-full py-3 px-4 text-xs font-black rounded-xl transition cursor-pointer flex items-center gap-3 text-left ${
                       activeTab === 'carts'
                         ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
@@ -2243,7 +2275,7 @@ export default function AdminPanel({
 
                   <button
                     type="button"
-                    onClick={() => setActiveTab('products')}
+                    onClick={() => { setActiveTab('products'); setIsMobileSidebarOpen(false); }}
                     className={`w-full py-3 px-4 text-xs font-black rounded-xl transition cursor-pointer flex items-center gap-3 text-left ${
                       activeTab === 'products'
                         ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
@@ -2256,7 +2288,7 @@ export default function AdminPanel({
 
                   <button
                     type="button"
-                    onClick={() => setActiveTab('layout-order')}
+                    onClick={() => { setActiveTab('layout-order'); setIsMobileSidebarOpen(false); }}
                     className={`w-full py-3 px-4 text-xs font-black rounded-xl transition cursor-pointer flex items-center gap-3 text-left ${
                       activeTab === 'layout-order'
                         ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
@@ -2269,7 +2301,7 @@ export default function AdminPanel({
 
                   <button
                     type="button"
-                    onClick={() => setActiveTab('bundles')}
+                    onClick={() => { setActiveTab('bundles'); setIsMobileSidebarOpen(false); }}
                     className={`w-full py-3 px-4 text-xs font-black rounded-xl transition cursor-pointer flex items-center gap-3 text-left ${
                       activeTab === 'bundles'
                         ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
@@ -2282,7 +2314,7 @@ export default function AdminPanel({
 
                   <button
                     type="button"
-                    onClick={() => setActiveTab('landing')}
+                    onClick={() => { setActiveTab('landing'); setIsMobileSidebarOpen(false); }}
                     className={`w-full py-3 px-4 text-xs font-black rounded-xl transition cursor-pointer flex items-center gap-3 text-left ${
                       activeTab === 'landing'
                         ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
@@ -2295,7 +2327,7 @@ export default function AdminPanel({
 
                   <button
                     type="button"
-                    onClick={() => setActiveTab('admins')}
+                    onClick={() => { setActiveTab('admins'); setIsMobileSidebarOpen(false); }}
                     className={`w-full py-3 px-4 text-xs font-black rounded-xl transition cursor-pointer flex items-center gap-3 text-left ${
                       activeTab === 'admins'
                         ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
