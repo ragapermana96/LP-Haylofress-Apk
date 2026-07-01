@@ -22,6 +22,7 @@ interface AdminPanelProps {
   currentProducts: Product[];
   currentCategories: DynamicCategory[];
   currentBundles?: Bundle[];
+  isFullScreen?: boolean;
 }
 
 export default function AdminPanel({
@@ -31,7 +32,8 @@ export default function AdminPanel({
   currentSettings,
   currentProducts,
   currentCategories,
-  currentBundles = []
+  currentBundles = [],
+  isFullScreen = false
 }: AdminPanelProps) {
   // Auth state
   const [email, setEmail] = useState('');
@@ -1610,23 +1612,28 @@ export default function AdminPanel({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden flex justify-end">
+    <div className={isFullScreen ? "fixed inset-0 z-50 overflow-hidden bg-slate-50 flex flex-col justify-between" : "fixed inset-0 z-50 overflow-hidden flex justify-end"}>
       {/* Background Dim Backdrop */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 0.6 }}
-        exit={{ opacity: 0 }}
-        onClick={onClose}
-        className="absolute inset-0 bg-slate-900"
-      />
+      {!isFullScreen && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 0.6 }}
+          exit={{ opacity: 0 }}
+          onClick={onClose}
+          className="absolute inset-0 bg-slate-900"
+        />
+      )}
 
       {/* Main Admin Sidebar Area */}
       <motion.div
-        initial={{ x: '100%' }}
-        animate={{ x: 0 }}
-        exit={{ x: '100%' }}
-        transition={{ type: 'spring', damping: 26, stiffness: 180 }}
-        className="relative h-full w-full max-w-full md:max-w-4xl lg:max-w-6xl xl:max-w-7xl bg-slate-50 shadow-2xl flex flex-col justify-between overflow-hidden z-10"
+        initial={isFullScreen ? { opacity: 0, scale: 0.99 } : { x: '100%' }}
+        animate={isFullScreen ? { opacity: 1, scale: 1 } : { x: 0 }}
+        exit={isFullScreen ? { opacity: 0, scale: 0.99 } : { x: '100%' }}
+        transition={isFullScreen ? { duration: 0.25, ease: 'easeOut' } : { type: 'spring', damping: 26, stiffness: 180 }}
+        className={isFullScreen
+          ? "relative h-full w-full bg-slate-50 flex flex-col justify-between overflow-hidden z-10"
+          : "relative h-full w-full max-w-full md:max-w-4xl lg:max-w-6xl xl:max-w-7xl bg-slate-50 shadow-2xl flex flex-col justify-between overflow-hidden z-10"
+        }
       >
         {/* Panel Header */}
         <div className="p-5 border-b border-slate-200 bg-white flex items-center justify-between sticky top-0 z-10 shadow-sm">
@@ -1648,9 +1655,20 @@ export default function AdminPanel({
           </div>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-700 transition cursor-pointer"
+            className={isFullScreen
+              ? "px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-950 rounded-xl font-bold text-xs transition cursor-pointer flex items-center gap-1.5 border border-slate-200 shadow-sm"
+              : "p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-700 transition cursor-pointer"
+            }
+            title={isFullScreen ? "Keluar ke Beranda" : "Tutup Panel"}
           >
-            <X className="w-5 h-5" />
+            {isFullScreen ? (
+              <>
+                <Home className="w-4 h-4 text-slate-500" />
+                <span>Keluar ke Beranda</span>
+              </>
+            ) : (
+              <X className="w-5 h-5" />
+            )}
           </button>
         </div>
 

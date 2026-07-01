@@ -106,6 +106,30 @@ export default function App() {
 
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isAdminOpen, setIsAdminOpen] = useState(false);
+
+  // Simple URL routing for Admin Panel using hash (#/admin) so it acts as a separate page
+  useEffect(() => {
+    const handleHashChange = () => {
+      const isHashAdmin = window.location.hash === '#/admin';
+      setIsAdminOpen(isHashAdmin);
+    };
+
+    handleHashChange(); // Run on initial mount
+
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
+  const handleOpenAdmin = () => {
+    window.location.hash = '#/admin';
+    setIsAdminOpen(true);
+  };
+
+  const handleCloseAdmin = () => {
+    window.location.hash = '';
+    setIsAdminOpen(false);
+  };
+
   const [isIdentityModalOpen, setIsIdentityModalOpen] = useState(false);
   const [pendingAddToCart, setPendingAddToCart] = useState<{ product: Product; quantity: number } | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -529,6 +553,21 @@ export default function App() {
     }
   };
 
+  if (isAdminOpen) {
+    return (
+      <AdminPanel 
+        isOpen={true}
+        onClose={handleCloseAdmin}
+        onRefreshData={loadData}
+        currentSettings={settings || defaultSettings}
+        currentProducts={products}
+        currentCategories={categories}
+        currentBundles={bundles}
+        isFullScreen={true}
+      />
+    );
+  }
+
   return (
     <div className="bg-white text-slate-800 font-sans min-h-screen flex flex-col justify-between selection:bg-emerald-600 selection:text-white relative">
       
@@ -536,7 +575,7 @@ export default function App() {
       <Header 
         cart={cart} 
         onOpenCart={() => setIsCartOpen(true)} 
-        onOpenAdmin={() => setIsAdminOpen(true)}
+        onOpenAdmin={handleOpenAdmin}
         settings={settings}
       />
 
@@ -652,17 +691,6 @@ export default function App() {
         settings={settings}
         customerInfo={customerInfo}
         onCustomerInfoChange={setCustomerInfo}
-      />
-
-      {/* 5. Custom Dynamic Admin Settings Control Panel Drawer */}
-      <AdminPanel 
-        isOpen={isAdminOpen}
-        onClose={() => setIsAdminOpen(false)}
-        onRefreshData={loadData}
-        currentSettings={settings || defaultSettings}
-        currentProducts={products}
-        currentCategories={categories}
-        currentBundles={bundles}
       />
 
       {/* 6. Footer and Maps Section */}
