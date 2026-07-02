@@ -70,6 +70,8 @@ export default function CartDrawer({
   onCustomerInfoChange,
 }: CartDrawerProps) {
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [isLocating, setIsLocating] = useState(false);
+  const [locatingError, setLocatingError] = useState<string | null>(null);
 
   // Track InitiateCheckout on open
   useEffect(() => {
@@ -110,10 +112,147 @@ export default function CartDrawer({
     { totalQuantity: 0, totalWeight: 0, subtotalOriginal: 0, subtotalActual: 0, savings: 0 }
   );
 
+  // Calculate dynamic distance-based shipping cost
+  const isShippingEnabled = settings?.enableDistanceShipping === true;
+  const distanceVal = parseFloat(customerInfo.distance || '0') || 0;
+  
+  const freeMinWeight = settings?.shippingFreeMinWeight !== undefined ? Number(settings.shippingFreeMinWeight) : 10;
+  const isFreeShipping = cartSummary.totalWeight >= freeMinWeight;
+  
+  let shippingCost = 0;
+  if (isShippingEnabled && !isFreeShipping) {
+    const calcType = settings?.shippingCalcType || 'per_km';
+    if (calcType === 'per_km') {
+      const costPerKm = settings?.shippingCostPerKm !== undefined ? Number(settings.shippingCostPerKm) : 2000;
+      const minCost = settings?.shippingMinCost !== undefined ? Number(settings.shippingMinCost) : 5000;
+      if (distanceVal > 0) {
+        shippingCost = Math.max(minCost, distanceVal * costPerKm);
+      }
+    } else {
+      // Tiered calculation
+      const t1Max = settings?.shippingTier1Max !== undefined ? Number(settings.shippingTier1Max) : 3;
+      const t1Cost = settings?.shippingTier1Cost !== undefined ? Number(settings.shippingTier1Cost) : 5000;
+      const t2Max = settings?.shippingTier2Max !== undefined ? Number(settings.shippingTier2Max) : 7;
+      const t2Cost = settings?.shippingTier2Cost !== undefined ? Number(settings.shippingTier2Cost) : 10000;
+      const t3Max = settings?.shippingTier3Max !== undefined ? Number(settings.shippingTier3Max) : 15;
+      const t3Cost = settings?.shippingTier3Cost !== undefined ? Number(settings.shippingTier3Cost) : 20000;
+      
+      if (distanceVal > 0) {
+        if (distanceVal <= t1Max) shippingCost = t1Cost;
+        else if (distanceVal <= t2Max) shippingCost = t2Cost;
+        else shippingCost = t3Cost; // standard fallback
+      }
+    }
+  }
+  
+  const grandTotal = cartSummary.subtotalActual + shippingCost;
+
+  // Helper to extract coordinates from Google Maps URL
+  const extractCoords = (url: string) => {
+    if (!url) return null;
+    const regexAt = /@(-?\d+\.\d+),(-?\d+\.\d+)/;
+    const matchAt = url.match(regexAt);
+    if (matchAt) {
+      return { lat: parseFloat(matchAt[1]), lng: parseFloat(matchAt[2]) };
+    }
+    const regexQLlDir = /[?&](q|ll|dir)=?(-?\d+\.\d+),(-?\d+\.\d+)/;
+    const matchQLlDir = url.match(regexQLlDir);
+    if (matchQLlDir) {
+      return { lat: parseFloat(matchQLlDir[2]), lng: parseFloat(matchQLlDir[3]) };
+    }
+    const regexRaw = /\/(-?\d+\.\d+),(-?\d+\.\d+)/;
+    const matchRaw = url.match(regexRaw);
+    if (matchRaw) {
+      return { lat: parseFloat(matchRaw[1]), lng: parseFloat(matchRaw[2]) };
+    }
+    return null;
+  };
+
+  // Helper to calculate distance in Km using Haversine formula
+  const calculateHaversine = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+    const R = 6371; // Radius of the earth in km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+      Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    const d = R * c; // Distance in km
+    return Math.round(d * 10) / 10; // round to 1 decimal place (e.g. 3.5)
+  };
+
+  const getStoreCoords = () => {
+    const coordsStr = settings?.shippingStoreCoords || '-7.402123, 111.445281';
+    const parts = coordsStr.split(',');
+    if (parts.length === 2) {
+      const lat = parseFloat(parts[0].trim());
+      const lng = parseFloat(parts[1].trim());
+      if (!isNaN(lat) && !isNaN(lng)) {
+        return { lat, lng };
+      }
+    }
+    return { lat: -7.402123, lng: 111.445281 }; // default fallback (Ngawi Central)
+  };
+
+  const handleGPSLocation = () => {
+    if (!navigator.geolocation) {
+      setLocatingError('Geolokasi tidak didukung oleh browser Anda.');
+      return;
+    }
+    setIsLocating(true);
+    setLocatingError(null);
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        const storeCoords = getStoreCoords();
+        const dist = calculateHaversine(latitude, longitude, storeCoords.lat, storeCoords.lng);
+        
+        onCustomerInfoChange({
+          ...customerInfo,
+          mapsLink: `https://www.google.com/maps?q=${latitude},${longitude}`,
+          distance: dist.toString()
+        });
+        setIsLocating(false);
+      },
+      (error) => {
+        console.error("Gagal mendeteksi lokasi GPS:", error);
+        let errorMsg = 'Gagal mendeteksi lokasi Anda.';
+        if (error.code === 1) {
+          errorMsg = 'Izin lokasi ditolak. Silakan izinkan akses lokasi di browser Anda atau salin link Google Maps secara manual.';
+        } else if (error.code === 2) {
+          errorMsg = 'Posisi tidak dapat ditentukan.';
+        } else if (error.code === 3) {
+          errorMsg = 'Waktu permintaan habis.';
+        }
+        setLocatingError(errorMsg);
+        setIsLocating(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
   const handleInputChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
   ) => {
     const { name, value } = e.target;
+    
+    if (name === 'mapsLink') {
+      const coords = extractCoords(value);
+      if (coords) {
+        const storeCoords = getStoreCoords();
+        const dist = calculateHaversine(coords.lat, coords.lng, storeCoords.lat, storeCoords.lng);
+        onCustomerInfoChange({ 
+          ...customerInfo, 
+          mapsLink: value,
+          distance: dist.toString()
+        });
+        if (validationError) setValidationError(null);
+        return;
+      }
+    }
+    
     onCustomerInfoChange({ ...customerInfo, [name]: value });
     if (validationError) setValidationError(null);
   };
@@ -135,6 +274,10 @@ export default function CartDrawer({
     }
     if (!customerInfo.address.trim()) {
       setValidationError('Silakan masukkan Alamat Pengiriman Lengkap Anda di Ngawi.');
+      return;
+    }
+    if (isShippingEnabled && !isFreeShipping && (!customerInfo.distance || parseFloat(customerInfo.distance) <= 0)) {
+      setValidationError('Silakan masukkan estimasi jarak pengiriman (Km) yang valid.');
       return;
     }
 
@@ -163,24 +306,29 @@ export default function CartDrawer({
     });
 
     const mapsLinkLine = customerInfo.mapsLink?.trim() ? `🗺️ Google Maps: ${customerInfo.mapsLink.trim()}\n` : '';
+    const distanceLine = isShippingEnabled ? `🛵 Jarak Kirim: ${distanceVal} Km\n` : '';
 
     const titleMessage = `*PESANAN BARU - HAYLOFRESS NGAWI*`;
     const customerBlock = `*DATA PELANGGAN:*
 👤 Nama: ${customerInfo.name}
 📱 WhatsApp: ${customerInfo.phone}
 🏠 Alamat: ${customerInfo.address}
-${mapsLinkLine}🏬 Tipe Mitra: ${buyerTypeLabel}
+${mapsLinkLine}${distanceLine}🏬 Tipe Mitra: ${buyerTypeLabel}
 📝 Catatan: ${customerInfo.notes.trim() ? customerInfo.notes : '-'}`;
 
     const cartBlock = `*RINCIAN DAFTAR PESANAN:*
 ${itemLines}`;
 
+    const shippingBreakdown = isShippingEnabled 
+      ? `Subtotal Belanja: ${formatIDR(cartSummary.subtotalActual)}\n🚚 Ongkos Kirim: ${shippingCost === 0 ? 'GRATIS' : formatIDR(shippingCost)}\n`
+      : '';
+
     const summaryBlock = `*RINGKASAN BELANJA:*
 Total Barang: ${cartSummary.totalQuantity} item
 Total Berat: ~${cartSummary.totalWeight} Kg
 Total Hemat Diskon: Rp ${cartSummary.savings.toLocaleString('id-ID')}
-
-*TOTAL PEMBAYARAN: ${formatIDR(cartSummary.subtotalActual)}*
+${shippingBreakdown}
+*TOTAL PEMBAYARAN: ${formatIDR(grandTotal)}*
 
 -----------------------------------------
 ⏱️ _Mohon konfirmasi ketersediaan barang dan estimasi waktu pengiriman kurir. Terima kasih!_`;
@@ -191,7 +339,7 @@ Total Hemat Diskon: Rp ${cartSummary.savings.toLocaleString('id-ID')}
 
     // Track standard conversion event 'Purchase' for Meta Pixel & Analytics DB
     trackPixelEvent('Purchase', {
-      value: cartSummary.subtotalActual,
+      value: grandTotal,
       currency: 'IDR',
       num_items: cart.length,
       content_ids: cart.map(item => item.product.id),
@@ -201,6 +349,8 @@ Total Hemat Diskon: Rp ${cartSummary.savings.toLocaleString('id-ID')}
       customer_address: customerInfo.address,
       customer_notes: customerInfo.notes,
       customer_maps_link: customerInfo.mapsLink || '',
+      customer_distance: distanceVal,
+      customer_shipping_cost: shippingCost,
       items: cart.map(item => {
         const priceDetail = getProductPriceDetail(item.product, item.quantity);
         return {
@@ -268,12 +418,12 @@ Total Hemat Diskon: Rp ${cartSummary.savings.toLocaleString('id-ID')}
               {cart.length > 0 ? (
                 <>
                   {/* Free Delivery Promo Bar */}
-                  {cartSummary.totalWeight >= 10 ? (
+                  {cartSummary.totalWeight >= freeMinWeight ? (
                     <div className="bg-emerald-50/85 backdrop-blur-md border border-emerald-200/80 text-emerald-950 p-3.5 rounded-2xl text-xs flex gap-2.5 items-start shadow-sm">
                       <Sparkles className="w-5 h-5 text-emerald-600 flex-shrink-0 animate-pulse" />
                       <div>
                         <strong className="font-extrabold text-emerald-900">🎉 Selamat, Bebas Ongkir Aktif!</strong>
-                        <p className="text-slate-650 mt-0.5">Berat total belanja Anda sudah mencapai {cartSummary.totalWeight} Kg. Gratis ongkir area Ngawi Kota!</p>
+                        <p className="text-slate-650 mt-0.5">Berat total belanja Anda sudah mencapai {cartSummary.totalWeight} Kg. Gratis ongkir area Ngawi!</p>
                       </div>
                     </div>
                   ) : (
@@ -281,7 +431,7 @@ Total Hemat Diskon: Rp ${cartSummary.savings.toLocaleString('id-ID')}
                       <Sparkles className="w-5 h-5 text-amber-600 flex-shrink-0" />
                       <div>
                         <strong className="font-extrabold text-amber-900">Delivery Promo:</strong>
-                        <p className="text-slate-650 mt-0.5">Tambahkan <strong className="font-semibold text-amber-850">{10 - cartSummary.totalWeight} Kg</strong> produk segar lagi untuk klaim Free Ongkir Ngawi Kota!</p>
+                        <p className="text-slate-650 mt-0.5">Tambahkan <strong className="font-semibold text-amber-850">{freeMinWeight - cartSummary.totalWeight} Kg</strong> produk segar lagi untuk klaim Free Ongkir Ngawi!</p>
                       </div>
                     </div>
                   )}
@@ -475,7 +625,7 @@ Total Hemat Diskon: Rp ${cartSummary.savings.toLocaleString('id-ID')}
                       {/* Google Maps Link */}
                       <div className="space-y-1">
                         <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
-                          <span>Link Google Maps <span className="text-slate-400">(Opsional)</span></span>
+                          <span>Link Google Maps <span className="text-slate-400">(Sangat Direkomendasikan)</span></span>
                           <a
                             href="https://maps.google.com"
                             target="_blank"
@@ -493,7 +643,88 @@ Total Hemat Diskon: Rp ${cartSummary.savings.toLocaleString('id-ID')}
                           placeholder="Salin/paste link lokasi Google Maps di sini (Contoh: https://maps.app.goo.gl/...)"
                           className="w-full bg-white/50 backdrop-blur-md border border-slate-200/70 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:outline-emerald-600 focus:border-emerald-600 transition shadow-inner"
                         />
+                        
+                        {/* Auto GPS detector button */}
+                        {isShippingEnabled && (
+                          <div className="pt-1.5 space-y-1.5">
+                            <button
+                              type="button"
+                              onClick={handleGPSLocation}
+                              disabled={isLocating}
+                              className={`w-full py-2.5 px-3 text-xs font-bold rounded-xl border flex items-center justify-center gap-2 transition cursor-pointer shadow-sm ${
+                                isLocating 
+                                  ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                                  : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                              }`}
+                            >
+                              <MapPin className={`w-3.5 h-3.5 text-emerald-600 ${isLocating ? 'animate-bounce' : ''}`} />
+                              <span>{isLocating ? 'Sedang Mendeteksi GPS Anda...' : '📍 Gunakan GPS Lokasi Saya (Otomatis & Akurat)'}</span>
+                            </button>
+                            
+                            {locatingError && (
+                              <p className="text-[10px] text-rose-600 font-bold block">{locatingError}</p>
+                            )}
+
+                            {customerInfo.mapsLink && extractCoords(customerInfo.mapsLink) && (
+                              <p className="text-[9px] text-emerald-600 font-extrabold flex items-center gap-1 block">
+                                <Check className="w-3 h-3 text-emerald-650 shrink-0" />
+                                <span>Sistem berhasil melacak koordinat & menghitung jarak otomatis!</span>
+                              </p>
+                            )}
+                            
+                            {!customerInfo.mapsLink && (
+                              <p className="text-[9px] text-slate-400 block leading-relaxed">
+                                💡 Klik tombol GPS di atas untuk melacak koordinat & mengisi kolom jarak otomatis, atau Anda juga bisa mengetikkan jarak secara manual di bawah.
+                              </p>
+                            )}
+                          </div>
+                        )}
                       </div>
+
+                      {/* Shipping Distance Input (Only if enabled in settings) */}
+                      {isShippingEnabled && (
+                        <div className="space-y-1.5 bg-amber-50/40 p-3.5 rounded-2xl border border-amber-100 animate-fade-in text-left">
+                          <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
+                            <span>Estimasi Jarak Pengiriman <span className="text-rose-500">*</span></span>
+                            <span className="text-[10px] text-amber-700 font-extrabold">
+                              {settings?.shippingCalcType === 'per_km'
+                                ? `Tarif: Rp ${Number(settings.shippingCostPerKm).toLocaleString('id-ID')}/Km (Min: Rp ${Number(settings.shippingMinCost).toLocaleString('id-ID')})`
+                                : `Tarif Flat Sesuai Jarak`
+                              }
+                            </span>
+                          </label>
+                          <div className="relative">
+                            <input
+                              type="number"
+                              name="distance"
+                              min="0"
+                              step="0.1"
+                              value={customerInfo.distance || ''}
+                              onChange={handleInputChange}
+                              placeholder="Masukkan jarak rumah Anda dari toko (Contoh: 3.5)"
+                              className="w-full bg-white/70 backdrop-blur-md border border-slate-200/70 rounded-xl pl-4 pr-12 py-2.5 text-sm font-bold focus:bg-white focus:outline-emerald-600 focus:border-emerald-600 transition shadow-inner font-mono text-slate-900"
+                            />
+                            <div className="absolute inset-y-0 right-3 flex items-center pointer-events-none text-xs font-black text-slate-400 font-mono">
+                              KM
+                            </div>
+                          </div>
+                          
+                          {/* Live shipping cost summary message */}
+                          {distanceVal > 0 ? (
+                            <p className="text-[10px] text-slate-500 font-medium mt-1">
+                              {isFreeShipping ? (
+                                <span className="text-emerald-700 font-bold block">🎉 Gratis Ongkir Aktif (Belanja ≥ {freeMinWeight} Kg)</span>
+                              ) : (
+                                <span className="block">Estimasi Ongkos Kirim: <strong className="text-emerald-600 font-extrabold font-mono">{formatIDR(shippingCost)}</strong></span>
+                              )}
+                            </p>
+                          ) : (
+                            <p className="text-[10px] text-amber-600 font-semibold mt-1 block">
+                              Silakan masukkan estimasi jarak (Km) untuk menghitung ongkir.
+                            </p>
+                          )}
+                        </div>
+                      )}
 
                       {/* Custom notes */}
                       <div className="space-y-1">
@@ -540,6 +771,20 @@ Total Hemat Diskon: Rp ${cartSummary.savings.toLocaleString('id-ID')}
                     <span>Subtotal Berat:</span>
                     <span className="font-bold text-slate-800">~{cartSummary.totalWeight} Kg</span>
                   </div>
+                  {isShippingEnabled && (
+                    <div className="flex justify-between items-center">
+                      <span>Ongkos Kirim ({distanceVal} Km):</span>
+                      <span className="font-bold text-slate-800">
+                        {isFreeShipping ? (
+                          <span className="text-emerald-600 font-extrabold uppercase">Gratis</span>
+                        ) : distanceVal > 0 ? (
+                          formatIDR(shippingCost)
+                        ) : (
+                          <span className="text-amber-600 italic text-xs">Masukkan Jarak</span>
+                        )}
+                      </span>
+                    </div>
+                  )}
                   <div className="flex justify-between items-center text-emerald-850 bg-emerald-50/80 border border-emerald-100 p-2.5 rounded-xl text-xs font-semibold">
                     <span className="flex items-center gap-1">
                       <Sparkles className="w-3.5 h-3.5" /> Total Hemat Grosir:
@@ -548,7 +793,7 @@ Total Hemat Diskon: Rp ${cartSummary.savings.toLocaleString('id-ID')}
                   </div>
                   <div className="flex justify-between items-center text-base font-extrabold text-slate-900 pt-2 border-t border-slate-200/50">
                     <span>Total Pembayaran:</span>
-                    <span className="text-lg text-emerald-600 font-extrabold">{formatIDR(cartSummary.subtotalActual)}</span>
+                    <span className="text-lg text-emerald-600 font-extrabold">{formatIDR(grandTotal)}</span>
                   </div>
                 </div>
 

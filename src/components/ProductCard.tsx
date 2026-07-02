@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Minus, ShoppingCart, Percent } from 'lucide-react';
+import { Plus, Minus, ShoppingCart, Percent, Share2 } from 'lucide-react';
 import { Product } from '../types';
 
 interface ProductCardProps {
@@ -45,10 +45,56 @@ export default function ProductCard({ product, onAddToCart }: ProductCardProps) 
     }
   };
 
+  const [isSharing, setIsSharing] = useState(false);
+
   const handleAddClick = () => {
     onAddToCart(product, quantity);
     // Reset selection counter to 1 for next add
     setQuantityInput('1');
+  };
+
+  const handleShareWhatsApp = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsSharing(true);
+    
+    // Construct target product url
+    const productUrl = `${window.location.origin}?p=${product.id}`;
+    let shortUrl = productUrl;
+    
+    try {
+      // Try is.gd API first (supports CORS and returns JSON)
+      const res = await fetch(`https://is.gd/create.php?format=json&url=${encodeURIComponent(productUrl)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.shorturl) {
+          shortUrl = data.shorturl;
+        }
+      }
+    } catch (err) {
+      console.warn("is.gd shortening failed, trying tinyurl fallback", err);
+      try {
+        // Fallback to tinyurl api-create.php
+        const res = await fetch(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(productUrl)}`);
+        if (res.ok) {
+          const text = await res.text();
+          if (text && text.startsWith('http')) {
+            shortUrl = text;
+          }
+        }
+      } catch (err2) {
+        console.warn("tinyurl shortening failed, using direct link", err2);
+      }
+    }
+
+    const priceText = hasDiscount 
+      ? `Promo: Rp ${product.priceDiscount.toLocaleString('id-ID')} (Harga normal: Rp ${product.priceNormal.toLocaleString('id-ID')})`
+      : `Harga: Rp ${product.priceNormal.toLocaleString('id-ID')}`;
+
+    const text = `Halo! Cek produk segar berkualitas dari *Haylofress Ngawi* ini:\n\n*${product.name}* (${product.unit})\n${priceText}\n\nBeli/Pesan sekarang melalui tautan cepat berikut:\n👉 ${shortUrl}`;
+    
+    const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+    window.open(waUrl, '_blank');
+    setIsSharing(false);
   };
 
   // Check if discount is entered/filled
@@ -150,15 +196,32 @@ export default function ProductCard({ product, onAddToCart }: ProductCardProps) 
             </div>
           </div>
 
-          {/* Action Call to Cart Button */}
-          <button
-            type="button"
-            onClick={handleAddClick}
-            className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3.5 px-4 rounded-2xl shadow-lg hover:scale-[1.01] transition-all duration-300 h-11 text-xs cursor-pointer"
-          >
-            <ShoppingCart className="w-4 h-4" />
-            <span>Tambah ke Keranjang</span>
-          </button>
+          {/* Action Buttons: Add to Cart and Share to WA side-by-side */}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={handleAddClick}
+              className="flex-1 flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-3 rounded-2xl shadow-lg hover:scale-[1.01] transition-all duration-300 h-11 text-xs cursor-pointer"
+            >
+              <ShoppingCart className="w-4 h-4 text-emerald-100" />
+              <span>+ Keranjang</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleShareWhatsApp}
+              disabled={isSharing}
+              className="px-3 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 font-extrabold rounded-2xl shadow-sm transition-all duration-300 h-11 text-xs cursor-pointer flex items-center justify-center gap-1.5 shrink-0"
+              title="Bagikan ke WhatsApp"
+            >
+              {isSharing ? (
+                <span className="w-4 h-4 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin"></span>
+              ) : (
+                <Share2 className="w-4 h-4 text-emerald-600" />
+              )}
+              <span className="hidden sm:inline">Bagikan</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>

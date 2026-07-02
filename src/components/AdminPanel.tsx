@@ -5,7 +5,7 @@ import {
   Settings, ShoppingBag, Phone, AlertCircle, RefreshCw, Key, Image, HelpCircle, UserPlus,
   Sparkles, Users, Home, Upload, Layers, ArrowUp, ArrowDown, FileSpreadsheet, Gift, Eye, EyeOff,
   ShoppingCart, MessageSquare, TrendingUp, Clipboard, Package, Star, BarChart2, Tag, Truck, Printer, 
-  Clock, Check, Calendar, AlertTriangle, UserCheck, Menu
+  Clock, Check, Calendar, AlertTriangle, UserCheck, Menu, MapPin
 } from 'lucide-react';
 import { db, auth, handleFirestoreError, OperationType } from '../firebase';
 import { 
@@ -51,7 +51,7 @@ export default function AdminPanel({
       return 0;
     }
   });
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'landing' | 'products' | 'whatsapp' | 'admins' | 'layout-order' | 'bundles' | 'carts'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'landing' | 'products' | 'whatsapp' | 'admins' | 'layout-order' | 'bundles' | 'carts' | 'shipping'>('dashboard');
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [activeDashboardSubTab, setActiveDashboardSubTab] = useState<'sales' | 'orders' | 'products' | 'performance' | 'analytics' | 'promotions' | 'shipping'>('sales');
   
@@ -59,6 +59,9 @@ export default function AdminPanel({
   const [dashboardOrders, setDashboardOrders] = useState<any[]>([]);
   const [selectedOrderForShipping, setSelectedOrderForShipping] = useState<any | null>(null);
   const [shippingWaybill, setShippingWaybill] = useState('');
+  const [simDistance, setSimDistance] = useState<number>(3);
+  const [simWeight, setSimWeight] = useState<number>(2);
+  const [shippingSavedToast, setShippingSavedToast] = useState(false);
   
   // Promotions States
   const [vouchers, setVouchers] = useState<any[]>([]);
@@ -699,7 +702,19 @@ export default function AdminPanel({
     keunggulanSubtitle: 'Kami menjaga kualitas produk sejak awal rantai distribusi hingga sampai di tangan Anda demi memberikan kenyamanan dan kesehatan konsumsi keluarga.',
     footerAddress: 'Jl. Ketonggo II Gg. Jalak No.21 RT 23 RW 05, Ketanggi, Ngawi, Jawa Timur 63211',
     footerHours: 'Buka Setiap Hari: 06:00 - 18:00 WIB',
-    footerEmail: 'haylofress.ngawi@gmail.com'
+    footerEmail: 'haylofress.ngawi@gmail.com',
+    enableDistanceShipping: false,
+    shippingCalcType: 'per_km',
+    shippingCostPerKm: 2000,
+    shippingMinCost: 5000,
+    shippingFreeMinWeight: 10,
+    shippingTier1Max: 3,
+    shippingTier1Cost: 5000,
+    shippingTier2Max: 7,
+    shippingTier2Cost: 10000,
+    shippingTier3Max: 15,
+    shippingTier3Cost: 20000,
+    shippingStoreCoords: '-7.402123, 111.445281'
   });
 
   // Form states for Product Catalog
@@ -778,7 +793,19 @@ export default function AdminPanel({
         keunggulanSubtitle: currentSettings.keunggulanSubtitle || 'Kami menjaga kualitas produk sejak awal rantai distribusi hingga sampai di tangan Anda demi memberikan kenyamanan dan kesehatan konsumsi keluarga.',
         footerAddress: currentSettings.footerAddress || 'Jl. Ketonggo II Gg. Jalak No.21 RT 23 RW 05, Ketanggi, Ngawi, Jawa Timur 63211',
         footerHours: currentSettings.footerHours || 'Buka Setiap Hari: 06:00 - 18:00 WIB',
-        footerEmail: currentSettings.footerEmail || 'haylofress.ngawi@gmail.com'
+        footerEmail: currentSettings.footerEmail || 'haylofress.ngawi@gmail.com',
+        enableDistanceShipping: currentSettings.enableDistanceShipping !== undefined ? currentSettings.enableDistanceShipping : false,
+        shippingCalcType: currentSettings.shippingCalcType || 'per_km',
+        shippingCostPerKm: currentSettings.shippingCostPerKm !== undefined ? Number(currentSettings.shippingCostPerKm) : 2000,
+        shippingMinCost: currentSettings.shippingMinCost !== undefined ? Number(currentSettings.shippingMinCost) : 5000,
+        shippingFreeMinWeight: currentSettings.shippingFreeMinWeight !== undefined ? Number(currentSettings.shippingFreeMinWeight) : 10,
+        shippingTier1Max: currentSettings.shippingTier1Max !== undefined ? Number(currentSettings.shippingTier1Max) : 3,
+        shippingTier1Cost: currentSettings.shippingTier1Cost !== undefined ? Number(currentSettings.shippingTier1Cost) : 5000,
+        shippingTier2Max: currentSettings.shippingTier2Max !== undefined ? Number(currentSettings.shippingTier2Max) : 7,
+        shippingTier2Cost: currentSettings.shippingTier2Cost !== undefined ? Number(currentSettings.shippingTier2Cost) : 10000,
+        shippingTier3Max: currentSettings.shippingTier3Max !== undefined ? Number(currentSettings.shippingTier3Max) : 15,
+        shippingTier3Cost: currentSettings.shippingTier3Cost !== undefined ? Number(currentSettings.shippingTier3Cost) : 20000,
+        shippingStoreCoords: currentSettings.shippingStoreCoords || '-7.402123, 111.445281'
       });
     }
   }, [currentSettings, isOpen]);
@@ -1222,9 +1249,17 @@ export default function AdminPanel({
       setIsLoading(true);
       setStatusMsg('Menyimpan perubahan struktur...');
       await setDoc(doc(db, 'settings', 'global'), settingsForm);
-      setStatusMsg('Struktur landing page berhasil disimpan!');
+      
+      if (activeTab === 'shipping') {
+        setStatusMsg('Pengaturan Ongkos Kirim Jarak berhasil disimpan dan terhubung otomatis dengan sistem checkout pelanggan!');
+        setShippingSavedToast(true);
+        setTimeout(() => setShippingSavedToast(false), 5000);
+      } else {
+        setStatusMsg('Struktur landing page berhasil disimpan!');
+      }
+      
       onRefreshData();
-      setTimeout(() => setStatusMsg(null), 3000);
+      setTimeout(() => setStatusMsg(null), 4000);
     } catch (err: any) {
       console.error("Gagal menyimpan pengaturan: ", err);
       const isSizeError = err && (err.message?.includes('too large') || String(err).includes('too large') || err.code === 'resource-exhausted');
@@ -2310,6 +2345,19 @@ export default function AdminPanel({
                   >
                     <Gift className="w-4 h-4 shrink-0 text-slate-450" />
                     <span>Promo & Bundling ({currentBundles.length})</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => { setActiveTab('shipping'); setIsMobileSidebarOpen(false); }}
+                    className={`w-full py-3 px-4 text-xs font-black rounded-xl transition cursor-pointer flex items-center gap-3 text-left ${
+                      activeTab === 'shipping'
+                        ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
+                        : 'text-slate-450 hover:text-slate-100 hover:bg-slate-800'
+                    }`}
+                  >
+                    <Truck className="w-4 h-4 shrink-0 text-slate-450" />
+                    <span>🚚 Pengaturan Ongkir</span>
                   </button>
 
                   <button
@@ -6639,6 +6687,395 @@ export default function AdminPanel({
                   </div>
                 </div>
 
+              </div>
+            )}
+
+            {/* TAB: SHIPPING AND DISTANCE SETTINGS */}
+            {activeTab === 'shipping' && (
+              <div className="space-y-6 animate-fade-in text-left">
+                {/* Header Section */}
+                <div className="bg-gradient-to-r from-amber-500 to-amber-600 p-6 rounded-2xl text-white shadow-md">
+                  <div className="flex items-center gap-3">
+                    <div className="bg-white/15 p-3 rounded-xl">
+                      <Truck className="w-6 h-6 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-black uppercase tracking-tight">Modul Ekspedisi & Ongkir Jarak</h3>
+                      <p className="text-xs text-amber-50 mt-0.5 opacity-90">
+                        Atur aturan biaya pengiriman berdasarkan estimasi jarak kilometer serta berikan promo gratis ongkir berdasarkan berat belanjaan.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Success Notification */}
+                {shippingSavedToast && (
+                  <div className="bg-emerald-50 border-2 border-emerald-500/30 text-emerald-900 p-4 rounded-2xl flex items-start gap-3 shadow-md animate-bounce">
+                    <div className="bg-emerald-500 text-white p-1 rounded-full shrink-0">
+                      <Check className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="font-extrabold text-xs uppercase tracking-wider text-emerald-800">Pengaturan Berhasil Disimpan!</h4>
+                      <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">
+                        Perubahan aturan tarif pengiriman jarak dan batas gratis ongkir telah aktif dan terhubung otomatis dengan modul checkout pelanggan secara langsung.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                  {/* Left Column: Form Settings */}
+                  <div className="lg:col-span-7 space-y-6">
+                    <form onSubmit={handleSaveSettings} className="bg-white p-6 rounded-2xl border border-slate-200/80 space-y-5 shadow-sm text-left">
+                      <h4 className="text-xs font-black uppercase text-amber-800 font-mono tracking-wider flex items-center gap-1.5 border-b border-slate-100 pb-2">
+                        <Settings className="w-4 h-4 text-amber-600" />
+                        <span>Konfigurasi Aturan Ongkir</span>
+                      </h4>
+
+                      <div className="space-y-4 text-slate-800">
+                        {/* Toggle Enable/Disable */}
+                        <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-200/50">
+                          <div>
+                            <span className="text-xs font-black uppercase tracking-wider text-slate-700 block font-mono">
+                              Aktifkan Ongkir Jarak
+                            </span>
+                            <span className="text-[10px] text-slate-500 block mt-0.5">
+                              Aktifkan kalkulasi ongkos kirim secara otomatis di keranjang belanja pembeli.
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSettingsForm((prev: any) => ({
+                                ...prev,
+                                enableDistanceShipping: !prev.enableDistanceShipping
+                              }));
+                            }}
+                            className={`w-11 h-6 flex items-center rounded-full p-1 cursor-pointer transition-colors duration-300 focus:outline-none shrink-0 ${
+                              settingsForm.enableDistanceShipping ? 'bg-emerald-600' : 'bg-slate-300'
+                            }`}
+                          >
+                            <div
+                              className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-300 ${
+                                settingsForm.enableDistanceShipping ? 'translate-x-5' : 'translate-x-0'
+                              }`}
+                            />
+                          </button>
+                        </div>
+
+                        {settingsForm.enableDistanceShipping && (
+                          <div className="space-y-4 border-t border-slate-100 pt-3 animate-fade-in">
+                            {/* Calc Type Selection */}
+                            <div>
+                              <label className="block text-xs font-black uppercase tracking-wider text-slate-500 mb-1.5 font-mono">
+                                Metode Perhitungan Ongkir
+                              </label>
+                              <select
+                                name="shippingCalcType"
+                                value={settingsForm.shippingCalcType}
+                                onChange={handleInputChange}
+                                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:outline-emerald-600 focus:border-emerald-600 transition"
+                              >
+                                <option value="per_km">Biaya per Kilometer (Flat / Linear)</option>
+                                <option value="tiered">Tingkatan Jarak (Tiered / Range Jarak)</option>
+                              </select>
+                            </div>
+
+                            {/* Standard Configs for Per Km */}
+                            {settingsForm.shippingCalcType === 'per_km' ? (
+                              <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                  <label className="block text-xs font-black uppercase tracking-wider text-slate-500 mb-1.5 font-mono">
+                                    Biaya Per Km (Rp)
+                                  </label>
+                                  <input
+                                    type="number"
+                                    name="shippingCostPerKm"
+                                    value={settingsForm.shippingCostPerKm}
+                                    onChange={(e) => setSettingsForm((prev: any) => ({ ...prev, shippingCostPerKm: Number(e.target.value) }))}
+                                    placeholder="Contoh: 2000"
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:outline-emerald-600 focus:border-emerald-600 transition shadow-inner font-mono font-bold"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-black uppercase tracking-wider text-slate-500 mb-1.5 font-mono">
+                                    Biaya Minimum (Rp)
+                                  </label>
+                                  <input
+                                    type="number"
+                                    name="shippingMinCost"
+                                    value={settingsForm.shippingMinCost}
+                                    onChange={(e) => setSettingsForm((prev: any) => ({ ...prev, shippingMinCost: Number(e.target.value) }))}
+                                    placeholder="Contoh: 5000"
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:outline-emerald-600 focus:border-emerald-600 transition shadow-inner font-mono font-bold"
+                                  />
+                                </div>
+                              </div>
+                            ) : (
+                              /* Configs for Tiered */
+                              <div className="space-y-3.5 bg-slate-50 p-3.5 rounded-xl border border-slate-200/50">
+                                <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 font-mono block">
+                                  Konfigurasi 3 Tingkat Tarif Jarak
+                                </span>
+                                
+                                {/* Tier 1 */}
+                                <div className="space-y-1.5 border-b border-slate-200/60 pb-3">
+                                  <span className="text-[10px] font-bold text-slate-600 block">Tingkat 1 (Jarak Dekat)</span>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                      <label className="text-[9px] font-bold text-slate-400 uppercase font-mono block">Maks Jarak (Km)</label>
+                                      <input
+                                        type="number"
+                                        value={settingsForm.shippingTier1Max}
+                                        onChange={(e) => setSettingsForm((prev: any) => ({ ...prev, shippingTier1Max: Number(e.target.value) }))}
+                                        className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-[9px] font-bold text-slate-400 uppercase font-mono block">Tarif Flat (Rp)</label>
+                                      <input
+                                        type="number"
+                                        value={settingsForm.shippingTier1Cost}
+                                        onChange={(e) => setSettingsForm((prev: any) => ({ ...prev, shippingTier1Cost: Number(e.target.value) }))}
+                                        className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Tier 2 */}
+                                <div className="space-y-1.5 border-b border-slate-200/60 pb-3">
+                                  <span className="text-[10px] font-bold text-slate-600 block">Tingkat 2 (Jarak Sedang)</span>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                      <label className="text-[9px] font-bold text-slate-400 uppercase font-mono block">Maks Jarak (Km)</label>
+                                      <input
+                                        type="number"
+                                        value={settingsForm.shippingTier2Max}
+                                        onChange={(e) => setSettingsForm((prev: any) => ({ ...prev, shippingTier2Max: Number(e.target.value) }))}
+                                        className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-[9px] font-bold text-slate-400 uppercase font-mono block">Tarif Flat (Rp)</label>
+                                      <input
+                                        type="number"
+                                        value={settingsForm.shippingTier2Cost}
+                                        onChange={(e) => setSettingsForm((prev: any) => ({ ...prev, shippingTier2Cost: Number(e.target.value) }))}
+                                        className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Tier 3 */}
+                                <div className="space-y-1.5">
+                                  <span className="text-[10px] font-bold text-slate-600 block">Tingkat 3 (Jarak Jauh)</span>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                      <label className="text-[9px] font-bold text-slate-400 uppercase font-mono block">Maks Jarak (Km)</label>
+                                      <input
+                                        type="number"
+                                        value={settingsForm.shippingTier3Max}
+                                        onChange={(e) => setSettingsForm((prev: any) => ({ ...prev, shippingTier3Max: Number(e.target.value) }))}
+                                        className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-[9px] font-bold text-slate-400 uppercase font-mono block">Tarif Flat (Rp)</label>
+                                      <input
+                                        type="number"
+                                        value={settingsForm.shippingTier3Cost}
+                                        onChange={(e) => setSettingsForm((prev: any) => ({ ...prev, shippingTier3Cost: Number(e.target.value) }))}
+                                        className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Config for Free Shipping weight threshold */}
+                            <div>
+                              <label className="block text-xs font-black uppercase tracking-wider text-slate-500 mb-1.5 font-mono">
+                                Batas Berat Gratis Ongkir (Kg)
+                              </label>
+                              <input
+                                type="number"
+                                name="shippingFreeMinWeight"
+                                value={settingsForm.shippingFreeMinWeight}
+                                onChange={(e) => setSettingsForm((prev: any) => ({ ...prev, shippingFreeMinWeight: Number(e.target.value) }))}
+                                placeholder="Contoh: 10"
+                                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:outline-emerald-600 focus:border-emerald-600 transition shadow-inner font-mono font-bold"
+                              />
+                              <p className="text-[10px] text-slate-500 mt-1 leading-relaxed">
+                                Pembeli yang membeli bahan segar dengan total berat di atas nilai ini akan mendapatkan Gratis Ongkir secara otomatis. Set ke nilai yang sangat besar (misal 9999) jika ingin menonaktifkan fitur gratis ongkir berdasarkan berat.
+                              </p>
+                            </div>
+
+                            {/* Config for Store Coordinates */}
+                            <div>
+                              <label className="block text-xs font-black uppercase tracking-wider text-slate-500 mb-1.5 font-mono">
+                                Koordinat Toko Anda (Latitude, Longitude)
+                              </label>
+                              <input
+                                type="text"
+                                name="shippingStoreCoords"
+                                value={settingsForm.shippingStoreCoords || ''}
+                                onChange={handleInputChange}
+                                placeholder="Contoh: -7.402123, 111.445281"
+                                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:outline-emerald-600 focus:border-emerald-600 transition shadow-inner font-mono font-bold"
+                              />
+                              <p className="text-[10px] text-slate-500 mt-1 leading-relaxed">
+                                Koordinat pusat toko Anda (misal Haylofress Ngawi). Digunakan sebagai titik awal kalkulasi jarak pengiriman otomatis saat pelanggan menggunakan tombol <strong>GPS</strong> atau mem-paste link Google Maps di formulir checkout.
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="pt-2">
+                        <button
+                          type="submit"
+                          disabled={isLoading}
+                          className="w-full bg-amber-600 hover:bg-amber-700 text-white font-extrabold py-3.5 rounded-xl shadow-lg shadow-amber-600/25 flex items-center justify-center gap-1.5 transition cursor-pointer"
+                        >
+                          <Save className="w-4 h-4" />
+                          <span>Simpan Konfigurasi Ongkir</span>
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+
+                  {/* Right Column: Simulator */}
+                  <div className="lg:col-span-5 space-y-6">
+                    <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm space-y-5">
+                      <h4 className="text-xs font-black uppercase text-slate-800 font-mono tracking-wider flex items-center gap-1.5 border-b border-slate-100 pb-2">
+                        <HelpCircle className="w-4 h-4 text-emerald-600" />
+                        <span>Kalkulator Simulasi Ongkir</span>
+                      </h4>
+
+                      <p className="text-xs text-slate-500 leading-relaxed">
+                        Gunakan simulator ini untuk menguji bagaimana sistem akan membebankan biaya pengiriman kepada pembeli secara real-time.
+                      </p>
+
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-xs font-black uppercase tracking-wider text-slate-400 mb-1 font-mono">
+                            Jarak Pengiriman (Km)
+                          </label>
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="range"
+                              min="0.5"
+                              max="30"
+                              step="0.5"
+                              value={simDistance}
+                              onChange={(e) => setSimDistance(Number(e.target.value))}
+                              className="w-full accent-amber-600 h-2 bg-slate-100 rounded-lg cursor-pointer"
+                            />
+                            <span className="font-mono font-black text-sm text-slate-800 shrink-0 bg-slate-100 px-2.5 py-1 rounded-lg">
+                              {simDistance} Km
+                            </span>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-black uppercase tracking-wider text-slate-400 mb-1 font-mono">
+                            Total Berat Belanja (Kg)
+                          </label>
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="range"
+                              min="0.5"
+                              max="20"
+                              step="0.5"
+                              value={simWeight}
+                              onChange={(e) => setSimWeight(Number(e.target.value))}
+                              className="w-full accent-amber-600 h-2 bg-slate-100 rounded-lg cursor-pointer"
+                            />
+                            <span className="font-mono font-black text-sm text-slate-800 shrink-0 bg-slate-100 px-2.5 py-1 rounded-lg">
+                              {simWeight} Kg
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Simulation Result Area */}
+                      {(() => {
+                        const isSimFree = simWeight >= (settingsForm.shippingFreeMinWeight !== undefined ? Number(settingsForm.shippingFreeMinWeight) : 10);
+                        let simCost = 0;
+                        let simCostExplanation = "";
+
+                        if (!settingsForm.enableDistanceShipping) {
+                          simCost = 0;
+                          simCostExplanation = "Kalkulator dinonaktifkan karena fitur Ongkir Jarak tidak aktif.";
+                        } else if (isSimFree) {
+                          simCost = 0;
+                          simCostExplanation = `Gratis Ongkir karena berat paket simulasi (${simWeight} Kg) sudah mencapai batas minimum gratis ongkir (${settingsForm.shippingFreeMinWeight} Kg).`;
+                        } else {
+                          if (settingsForm.shippingCalcType === 'per_km') {
+                            const costPerKm = Number(settingsForm.shippingCostPerKm) || 0;
+                            const minCost = Number(settingsForm.shippingMinCost) || 0;
+                            const rawCost = simDistance * costPerKm;
+                            if (rawCost < minCost) {
+                              simCost = minCost;
+                              simCostExplanation = `Tarif per kilometer: ${simDistance} Km x Rp ${costPerKm.toLocaleString('id-ID')}/Km = Rp ${rawCost.toLocaleString('id-ID')}. Karena di bawah biaya minimum (Rp ${minCost.toLocaleString('id-ID')}), maka dibulatkan menjadi Rp ${minCost.toLocaleString('id-ID')}.`;
+                            } else {
+                              simCost = rawCost;
+                              simCostExplanation = `Tarif per kilometer: ${simDistance} Km x Rp ${costPerKm.toLocaleString('id-ID')}/Km = Rp ${rawCost.toLocaleString('id-ID')}.`;
+                            }
+                          } else {
+                            // Tiered
+                            const t1Max = Number(settingsForm.shippingTier1Max) || 3;
+                            const t1Cost = Number(settingsForm.shippingTier1Cost) || 5000;
+                            const t2Max = Number(settingsForm.shippingTier2Max) || 7;
+                            const t2Cost = Number(settingsForm.shippingTier2Cost) || 10000;
+                            const t3Max = Number(settingsForm.shippingTier3Max) || 15;
+                            const t3Cost = Number(settingsForm.shippingTier3Cost) || 20000;
+                            
+                            if (simDistance <= t1Max) {
+                              simCost = t1Cost;
+                              simCostExplanation = `Tingkatan Jarak 1: Jarak simulasi ${simDistance} Km <= ${t1Max} Km. Tarif flat yang berlaku adalah Rp ${t1Cost.toLocaleString('id-ID')}.`;
+                            } else if (simDistance <= t2Max) {
+                              simCost = t2Cost;
+                              simCostExplanation = `Tingkatan Jarak 2: Jarak simulasi ${simDistance} Km berada di antara ${t1Max} Km dan ${t2Max} Km. Tarif flat yang berlaku adalah Rp ${t2Cost.toLocaleString('id-ID')}.`;
+                            } else {
+                              simCost = t3Cost;
+                              simCostExplanation = `Tingkatan Jarak 3: Jarak simulasi ${simDistance} Km > ${t2Max} Km. Tarif flat yang berlaku adalah Rp ${t3Cost.toLocaleString('id-ID')}.`;
+                            }
+                          }
+                        }
+
+                        return (
+                          <div className={`p-4 rounded-2xl border ${
+                            !settingsForm.enableDistanceShipping 
+                              ? 'bg-slate-50 border-slate-200' 
+                              : isSimFree 
+                                ? 'bg-emerald-50 border-emerald-100 text-emerald-900' 
+                                : 'bg-amber-50 border-amber-100 text-amber-900'
+                          } space-y-2`}>
+                            <div className="flex justify-between items-center">
+                              <span className="text-xs font-bold uppercase tracking-wider">Hasil Biaya Ongkir:</span>
+                              <span className="text-lg font-black font-mono">
+                                {!settingsForm.enableDistanceShipping ? (
+                                  "Nonaktif"
+                                ) : isSimFree ? (
+                                  <span className="text-emerald-600">Gratis (Rp 0)</span>
+                                ) : (
+                                  `Rp ${simCost.toLocaleString('id-ID')}`
+                                )}
+                              </span>
+                            </div>
+                            <p className="text-[10px] leading-relaxed text-slate-600">
+                              <strong className="font-bold">Analisis Aturan:</strong> {simCostExplanation}
+                            </p>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 

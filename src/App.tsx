@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingBag, ArrowUpRight, HelpCircle, Sparkles, Phone, User, Users, Home, Store, Check, MapPin, X } from 'lucide-react';
+import { ShoppingBag, ArrowUpRight, HelpCircle, Sparkles, Phone, User, Users, Home, Store, Check, MapPin, X, Share2, Percent, Tag, Plus, Minus } from 'lucide-react';
 import Header from './components/Header';
 import Hero from './components/Hero';
 import ProblemSolution from './components/ProblemSolution';
@@ -73,7 +73,19 @@ const defaultSettings = {
   problemTitle: 'Sering Mengalami Kendala Ini Saat Menyiapkan Sajian Makanan?',
   problemSubtitle: 'Menyiapkan masakan bergizi tidak seharusnya menyiksa fisik dan memakan waktu berharga Anda. Mari bandingkan keruwetan dapur lama vs kepraktisan era baru.',
   solutionTitle: 'Keribetan Tradisional & Dapur Lama',
-  solutionSubtitle: 'Solusi Instan Haylofress Ngawi'
+  solutionSubtitle: 'Solusi Instan Haylofress Ngawi',
+  enableDistanceShipping: false,
+  shippingCalcType: 'per_km', // 'per_km' | 'tiered'
+  shippingCostPerKm: 2000,
+  shippingMinCost: 5000,
+  shippingFreeMinWeight: 10,
+  shippingTier1Max: 3,
+  shippingTier1Cost: 5000,
+  shippingTier2Max: 7,
+  shippingTier2Cost: 10000,
+  shippingTier3Max: 15,
+  shippingTier3Cost: 20000,
+  shippingStoreCoords: '-7.402123, 111.445281'
 };
 
 export default function App() {
@@ -91,6 +103,7 @@ export default function App() {
       notes: '',
       buyerType: 'rumah_tangga',
       mapsLink: '',
+      distance: '',
     };
   });
 
@@ -247,6 +260,83 @@ export default function App() {
   const [bundles, setBundles] = useState<Bundle[]>(DEFAULT_BUNDLES);
   const [settings, setSettings] = useState<any>(defaultSettings);
   const [loading, setLoading] = useState(true);
+
+  const [selectedProductDetail, setSelectedProductDetail] = useState<Product | null>(null);
+  const [detailQty, setDetailQty] = useState(1);
+  const [isDetailSharing, setIsDetailSharing] = useState(false);
+
+  useEffect(() => {
+    if (selectedProductDetail) {
+      setDetailQty(1);
+    }
+  }, [selectedProductDetail]);
+
+  const handleShareDetailWA = async (product: Product) => {
+    setIsDetailSharing(true);
+    const productUrl = `${window.location.origin}?p=${product.id}`;
+    let shortUrl = productUrl;
+    
+    try {
+      const res = await fetch(`https://is.gd/create.php?format=json&url=${encodeURIComponent(productUrl)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.shorturl) {
+          shortUrl = data.shorturl;
+        }
+      }
+    } catch (err) {
+      console.warn("is.gd shortening failed, trying tinyurl fallback", err);
+      try {
+        const res = await fetch(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(productUrl)}`);
+        if (res.ok) {
+          const text = await res.text();
+          if (text && text.startsWith('http')) {
+            shortUrl = text;
+          }
+        }
+      } catch (err2) {
+        console.warn("tinyurl shortening failed, using direct link", err2);
+      }
+    }
+
+    const priceText = product.priceDiscount > 0 
+      ? `Promo: Rp ${product.priceDiscount.toLocaleString('id-ID')} (Harga normal: Rp ${product.priceNormal.toLocaleString('id-ID')})`
+      : `Harga: Rp ${product.priceNormal.toLocaleString('id-ID')}`;
+
+    const text = `Halo! Cek produk segar berkualitas dari *Haylofress Ngawi* ini:\n\n*${product.name}* (${product.unit})\n${priceText}\n\nBeli/Pesan sekarang melalui tautan cepat berikut:\n👉 ${shortUrl}`;
+    
+    const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+    window.open(waUrl, '_blank');
+    setIsDetailSharing(false);
+  };
+
+  // Parse URL query parameter ?p=<id> or hash change to show specific product details
+  useEffect(() => {
+    if (products.length === 0) return;
+
+    const handleUrlParsing = () => {
+      const params = new URLSearchParams(window.location.search);
+      const prodId = params.get('p') || window.location.hash.match(/#\/p\/(.+)/)?.[1];
+      
+      if (prodId) {
+        const found = products.find(p => p.id === prodId);
+        if (found) {
+          setSelectedProductDetail(found);
+          // Scroll smoothly to catalog
+          setTimeout(() => {
+            const el = document.getElementById('id-katalog');
+            if (el) {
+              el.scrollIntoView({ behavior: 'smooth' });
+            }
+          }, 600);
+        }
+      }
+    };
+
+    handleUrlParsing();
+    window.addEventListener('hashchange', handleUrlParsing);
+    return () => window.removeEventListener('hashchange', handleUrlParsing);
+  }, [products]);
 
   const loadData = async () => {
     try {
@@ -835,6 +925,183 @@ export default function App() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* 9. Product Detail Modal Pop-up (for Shared Links) */}
+      {selectedProductDetail && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-[2rem] border border-slate-200 shadow-2xl w-full max-w-lg overflow-hidden animate-slide-in relative my-8">
+            {/* Header / Image section */}
+            <div className="relative aspect-[16/9] bg-slate-100 shrink-0">
+              {selectedProductDetail.imageUrl ? (
+                <img
+                  src={selectedProductDetail.imageUrl}
+                  alt={selectedProductDetail.name}
+                  referrerPolicy="no-referrer"
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center bg-emerald-50 text-emerald-600 font-bold">
+                  {selectedProductDetail.name}
+                </div>
+              )}
+              {/* Category label */}
+              <span className="absolute top-4 left-4 bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-wider">
+                {selectedProductDetail.categoryName || selectedProductDetail.category}
+              </span>
+              {/* Close button */}
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedProductDetail(null);
+                  // Remove p query param from URL without reloading
+                  const url = new URL(window.location.href);
+                  url.searchParams.delete('p');
+                  window.history.pushState({}, '', url.toString());
+                }}
+                className="absolute top-4 right-4 bg-black/60 hover:bg-black/80 p-2 rounded-full transition cursor-pointer text-white"
+                title="Tutup"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content section */}
+            <div className="p-6 space-y-5 max-h-[60vh] overflow-y-auto no-scrollbar">
+              <div className="space-y-1.5">
+                <h3 className="text-xl font-black text-slate-800 tracking-tight leading-snug">
+                  {selectedProductDetail.name}
+                </h3>
+                <p className="text-slate-500 text-xs">
+                  Satuan: <span className="font-bold text-slate-800">{selectedProductDetail.unit}</span>
+                </p>
+                <p className="text-slate-650 text-xs leading-relaxed mt-2 bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                  {selectedProductDetail.description}
+                </p>
+              </div>
+
+              {/* Pricing Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Retail Pricing Card */}
+                <div className="bg-emerald-50/50 border border-emerald-100 p-3.5 rounded-2xl shadow-sm space-y-1">
+                  <span className="text-[9px] uppercase font-bold text-emerald-800 tracking-wider flex items-center gap-1">
+                    <Tag className="w-3 h-3 text-emerald-600" /> Harga Eceran
+                  </span>
+                  {selectedProductDetail.priceDiscount && selectedProductDetail.priceDiscount > 0 ? (
+                    <div>
+                      <div className="text-lg font-black text-rose-600">
+                        Rp {selectedProductDetail.priceDiscount.toLocaleString('id-ID')}
+                        <span className="text-xs font-normal text-slate-400">/{selectedProductDetail.unit}</span>
+                      </div>
+                      <div className="text-[10px] text-slate-400 line-through font-bold">
+                        Rp {selectedProductDetail.priceNormal.toLocaleString('id-ID')}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-lg font-black text-slate-800">
+                      Rp {selectedProductDetail.priceNormal.toLocaleString('id-ID')}
+                      <span className="text-xs font-normal text-slate-400">/{selectedProductDetail.unit}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Wholesale Callout */}
+                <div className="bg-amber-50/50 border border-amber-100 p-3.5 rounded-2xl shadow-sm flex flex-col justify-between">
+                  <span className="text-[9px] uppercase font-bold text-amber-800 tracking-wider flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-amber-600" /> Promo Grosir
+                  </span>
+                  <p className="text-[10px] text-slate-650 leading-relaxed mt-1">
+                    Dapatkan harga diskon berjenjang otomatis jika memesan minimal <strong>10 Kg, 100 Kg, atau 500 Kg</strong> di keranjang belanja!
+                  </p>
+                </div>
+              </div>
+
+              {/* Wholesale Pricing Table details */}
+              {(selectedProductDetail.priceGrosir1 || selectedProductDetail.priceGrosir2 || selectedProductDetail.priceGrosir3) && (
+                <div className="border border-slate-100 bg-slate-50 rounded-2xl p-4.5 space-y-2">
+                  <span className="text-[10px] uppercase font-black tracking-wider text-slate-400 block">🏷️ Daftar Harga Grosir (Otomatis):</span>
+                  <div className="space-y-1.5 text-xs text-slate-750">
+                    {selectedProductDetail.priceGrosir1 && (
+                      <div className="flex justify-between font-mono font-bold">
+                        <span>Min. 10 {selectedProductDetail.unit}</span>
+                        <span className="text-emerald-750">Rp {selectedProductDetail.priceGrosir1.toLocaleString('id-ID')}/{selectedProductDetail.unit}</span>
+                      </div>
+                    )}
+                    {selectedProductDetail.priceGrosir2 && (
+                      <div className="flex justify-between font-mono font-bold">
+                        <span>Min. 100 {selectedProductDetail.unit}</span>
+                        <span className="text-emerald-750">Rp {selectedProductDetail.priceGrosir2.toLocaleString('id-ID')}/{selectedProductDetail.unit}</span>
+                      </div>
+                    )}
+                    {selectedProductDetail.priceGrosir3 && (
+                      <div className="flex justify-between font-mono font-bold">
+                        <span>Min. 500 {selectedProductDetail.unit}</span>
+                        <span className="text-emerald-750">Rp {selectedProductDetail.priceGrosir3.toLocaleString('id-ID')}/{selectedProductDetail.unit}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Bottom Actions section */}
+            <div className="p-6 bg-slate-50 border-t border-slate-100 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-500">Kuantitas Pesan:</span>
+                <div className="flex items-center gap-3 bg-white border border-slate-200 p-1 rounded-xl shadow-sm">
+                  <button
+                    type="button"
+                    onClick={() => setDetailQty(prev => Math.max(1, prev - 1))}
+                    className="w-8 h-8 rounded-lg flex items-center justify-center border border-slate-200 text-slate-600 hover:bg-slate-50 transition"
+                  >
+                    <Minus className="w-3.5 h-3.5" />
+                  </button>
+                  <span className="w-10 text-center font-black text-sm text-slate-800">{detailQty}</span>
+                  <button
+                    type="button"
+                    onClick={() => setDetailQty(prev => prev + 1)}
+                    className="w-8 h-8 rounded-lg flex items-center justify-center border border-slate-200 text-slate-600 hover:bg-slate-50 transition"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleAddToCart(selectedProductDetail, detailQty);
+                    setSelectedProductDetail(null);
+                    // Clear search params
+                    const url = new URL(window.location.href);
+                    url.searchParams.delete('p');
+                    window.history.pushState({}, '', url.toString());
+                  }}
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-750 text-white font-extrabold text-xs py-3.5 rounded-2xl shadow-lg shadow-emerald-600/10 transition flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <ShoppingBag className="w-4 h-4" />
+                  <span>Masukkan Keranjang</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleShareDetailWA(selectedProductDetail)}
+                  disabled={isDetailSharing}
+                  className="px-4 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-bold rounded-2xl shadow-sm transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  title="Bagikan Tautan Pendek WA"
+                >
+                  {isDetailSharing ? (
+                    <span className="w-4 h-4 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin"></span>
+                  ) : (
+                    <Share2 className="w-4 h-4 text-emerald-600" />
+                  )}
+                  <span className="text-xs">Bagikan WA</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

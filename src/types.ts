@@ -48,6 +48,7 @@ export interface CustomerInfo {
   notes: string;
   buyerType: 'rumah_tangga' | 'umkm' | 'reseller';
   mapsLink?: string;
+  distance?: string;
 }
 
 export function getProductPriceDetail(product: Product, quantity: number): { price: number; type: 'normal' | 'discount' | 'grosir1' | 'grosir2' | 'grosir3'; label: string } {
