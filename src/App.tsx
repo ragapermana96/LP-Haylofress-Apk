@@ -78,14 +78,21 @@ const defaultSettings = {
   shippingCalcType: 'per_km', // 'per_km' | 'tiered'
   shippingCostPerKm: 2000,
   shippingMinCost: 5000,
-  shippingFreeMinWeight: 10,
+  shippingSubsidyMinWeight: 10,
+  shippingSubsidyWeightValue: 5000,
+  shippingSubsidyMinAmount: 150000,
+  shippingSubsidyAmountValue: 10000,
+  shippingFreeWholesaleWeight: 150,
   shippingTier1Max: 3,
   shippingTier1Cost: 5000,
   shippingTier2Max: 7,
   shippingTier2Cost: 10000,
   shippingTier3Max: 15,
   shippingTier3Cost: 20000,
-  shippingStoreCoords: '-7.402123, 111.445281'
+  shippingStoreCoords: '-7.402123, 111.445281',
+  shippingServiceLabel: 'kurir_toko',
+  shippingServiceKurirTokoActive: true,
+  shippingServiceKurirLuarActive: true
 };
 
 export default function App() {
@@ -104,6 +111,7 @@ export default function App() {
       buyerType: 'rumah_tangga',
       mapsLink: '',
       distance: '',
+      shippingService: 'kurir_toko'
     };
   });
 

@@ -5,7 +5,7 @@ import {
   Settings, ShoppingBag, Phone, AlertCircle, RefreshCw, Key, Image, HelpCircle, UserPlus,
   Sparkles, Users, Home, Upload, Layers, ArrowUp, ArrowDown, FileSpreadsheet, Gift, Eye, EyeOff,
   ShoppingCart, MessageSquare, TrendingUp, Clipboard, Package, Star, BarChart2, Tag, Truck, Printer, 
-  Clock, Check, Calendar, AlertTriangle, UserCheck, Menu, MapPin
+  Clock, Check, Calendar, AlertTriangle, UserCheck, Menu, MapPin, ChevronDown
 } from 'lucide-react';
 import { db, auth, handleFirestoreError, OperationType } from '../firebase';
 import { 
@@ -61,7 +61,10 @@ export default function AdminPanel({
   const [shippingWaybill, setShippingWaybill] = useState('');
   const [simDistance, setSimDistance] = useState<number>(3);
   const [simWeight, setSimWeight] = useState<number>(2);
+  const [simAmount, setSimAmount] = useState<number>(50000);
+  const [simQty, setSimQty] = useState<number>(3);
   const [shippingSavedToast, setShippingSavedToast] = useState(false);
+  const [globalToast, setGlobalToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
   
   // Promotions States
   const [vouchers, setVouchers] = useState<any[]>([]);
@@ -707,14 +710,21 @@ export default function AdminPanel({
     shippingCalcType: 'per_km',
     shippingCostPerKm: 2000,
     shippingMinCost: 5000,
-    shippingFreeMinWeight: 10,
+    shippingSubsidyMinWeight: 10,
+    shippingSubsidyWeightValue: 5000,
+    shippingSubsidyMinAmount: 150000,
+    shippingSubsidyAmountValue: 10000,
+    shippingFreeWholesaleWeight: 150,
     shippingTier1Max: 3,
     shippingTier1Cost: 5000,
     shippingTier2Max: 7,
     shippingTier2Cost: 10000,
     shippingTier3Max: 15,
     shippingTier3Cost: 20000,
-    shippingStoreCoords: '-7.402123, 111.445281'
+    shippingStoreCoords: '-7.402123, 111.445281',
+    shippingServiceLabel: 'kurir_toko',
+    shippingServiceKurirTokoActive: true,
+    shippingServiceKurirLuarActive: true
   });
 
   // Form states for Product Catalog
@@ -798,14 +808,21 @@ export default function AdminPanel({
         shippingCalcType: currentSettings.shippingCalcType || 'per_km',
         shippingCostPerKm: currentSettings.shippingCostPerKm !== undefined ? Number(currentSettings.shippingCostPerKm) : 2000,
         shippingMinCost: currentSettings.shippingMinCost !== undefined ? Number(currentSettings.shippingMinCost) : 5000,
-        shippingFreeMinWeight: currentSettings.shippingFreeMinWeight !== undefined ? Number(currentSettings.shippingFreeMinWeight) : 10,
+        shippingSubsidyMinWeight: currentSettings.shippingSubsidyMinWeight !== undefined ? Number(currentSettings.shippingSubsidyMinWeight) : 10,
+        shippingSubsidyWeightValue: currentSettings.shippingSubsidyWeightValue !== undefined ? Number(currentSettings.shippingSubsidyWeightValue) : 5000,
+        shippingSubsidyMinAmount: currentSettings.shippingSubsidyMinAmount !== undefined ? Number(currentSettings.shippingSubsidyMinAmount) : 150000,
+        shippingSubsidyAmountValue: currentSettings.shippingSubsidyAmountValue !== undefined ? Number(currentSettings.shippingSubsidyAmountValue) : 10000,
+        shippingFreeWholesaleWeight: currentSettings.shippingFreeWholesaleWeight !== undefined ? Number(currentSettings.shippingFreeWholesaleWeight) : 150,
         shippingTier1Max: currentSettings.shippingTier1Max !== undefined ? Number(currentSettings.shippingTier1Max) : 3,
         shippingTier1Cost: currentSettings.shippingTier1Cost !== undefined ? Number(currentSettings.shippingTier1Cost) : 5000,
         shippingTier2Max: currentSettings.shippingTier2Max !== undefined ? Number(currentSettings.shippingTier2Max) : 7,
         shippingTier2Cost: currentSettings.shippingTier2Cost !== undefined ? Number(currentSettings.shippingTier2Cost) : 10000,
         shippingTier3Max: currentSettings.shippingTier3Max !== undefined ? Number(currentSettings.shippingTier3Max) : 15,
         shippingTier3Cost: currentSettings.shippingTier3Cost !== undefined ? Number(currentSettings.shippingTier3Cost) : 20000,
-        shippingStoreCoords: currentSettings.shippingStoreCoords || '-7.402123, 111.445281'
+        shippingStoreCoords: currentSettings.shippingStoreCoords || '-7.402123, 111.445281',
+        shippingServiceLabel: currentSettings.shippingServiceLabel || 'kurir_toko',
+        shippingServiceKurirTokoActive: currentSettings.shippingServiceKurirTokoActive !== undefined ? currentSettings.shippingServiceKurirTokoActive : true,
+        shippingServiceKurirLuarActive: currentSettings.shippingServiceKurirLuarActive !== undefined ? currentSettings.shippingServiceKurirLuarActive : true
       });
     }
   }, [currentSettings, isOpen]);
@@ -1181,7 +1198,10 @@ export default function AdminPanel({
         keunggulanSubtitle: 'Kami menjaga kualitas produk sejak awal rantai distribusi hingga sampai di tangan Anda demi memberikan kenyamanan dan kesehatan konsumsi keluarga.',
         footerAddress: 'Jl. Ketonggo II Gg. Jalak No.21 RT 23 RW 05, Ketanggi, Ngawi, Jawa Timur 63211',
         footerHours: 'Buka Setiap Hari: 06:00 - 18:00 WIB',
-        footerEmail: 'haylofress.ngawi@gmail.com'
+        footerEmail: 'haylofress.ngawi@gmail.com',
+        shippingServiceLabel: 'kurir_toko',
+        shippingServiceKurirTokoActive: true,
+        shippingServiceKurirLuarActive: true
       };
 
       await setDoc(doc(db, 'settings', 'global'), defaultSettingsDoc);
@@ -1250,12 +1270,31 @@ export default function AdminPanel({
       setStatusMsg('Menyimpan perubahan struktur...');
       await setDoc(doc(db, 'settings', 'global'), settingsForm);
       
-      if (activeTab === 'shipping') {
+      if (activeTab === 'delivery') {
+        setStatusMsg('Pengaturan Jasa Pengiriman berhasil disimpan dan terhubung otomatis dengan sistem checkout pelanggan!');
+        setGlobalToast({
+          message: 'Konfigurasi Jasa Pengiriman Toko Berhasil Disimpan & Sinkron dengan Sistem Checkout!',
+          type: 'success'
+        });
+        setTimeout(() => setGlobalToast(null), 5000);
+      } else if (activeTab === 'shipping') {
         setStatusMsg('Pengaturan Ongkos Kirim Jarak berhasil disimpan dan terhubung otomatis dengan sistem checkout pelanggan!');
         setShippingSavedToast(true);
-        setTimeout(() => setShippingSavedToast(false), 5000);
+        setGlobalToast({
+          message: 'Konfigurasi Ongkir (Kurir/Truk) Berhasil Disimpan & Sinkron dengan Sistem Checkout!',
+          type: 'success'
+        });
+        setTimeout(() => {
+          setShippingSavedToast(false);
+          setGlobalToast(null);
+        }, 5000);
       } else {
         setStatusMsg('Struktur landing page berhasil disimpan!');
+        setGlobalToast({
+          message: 'Konfigurasi Struktur Landing Page Berhasil Disimpan!',
+          type: 'success'
+        });
+        setTimeout(() => setGlobalToast(null), 5000);
       }
       
       onRefreshData();
@@ -1263,11 +1302,19 @@ export default function AdminPanel({
     } catch (err: any) {
       console.error("Gagal menyimpan pengaturan: ", err);
       const isSizeError = err && (err.message?.includes('too large') || String(err).includes('too large') || err.code === 'resource-exhausted');
+      let errMsg = "";
       if (isSizeError) {
-        alert("Gagal Menyimpan! Ukuran file foto yang diunggah untuk banner/profil gabungan terlalu besar (melebihi batas database Firestore 1MB). Silakan kompres foto Anda atau gunakan link/URL eksternal.");
+        errMsg = "Gagal Menyimpan! Ukuran file foto yang diunggah untuk banner/profil gabungan terlalu besar (melebihi batas database Firestore 1MB). Silakan kompres foto Anda atau gunakan link/URL eksternal.";
+        alert(errMsg);
       } else {
-        alert("Gagal menyimpan pengaturan! Harap pastikan koneksi lancar dan Anda masuk sebagai admin. Detail: " + (err.message || String(err)));
+        errMsg = "Gagal menyimpan pengaturan! Harap pastikan koneksi lancar dan Anda masuk sebagai admin. Detail: " + (err.message || String(err));
+        alert(errMsg);
       }
+      setGlobalToast({
+        message: errMsg,
+        type: 'error'
+      });
+      setTimeout(() => setGlobalToast(null), 6000);
       handleFirestoreError(err, OperationType.WRITE, '/settings/global');
     } finally {
       setIsLoading(false);
@@ -2060,6 +2107,46 @@ export default function AdminPanel({
 
   return (
     <div className={isFullScreen ? "fixed inset-0 z-50 overflow-hidden bg-slate-50 flex flex-col justify-between" : "fixed inset-0 z-50 overflow-hidden flex justify-end"}>
+      {/* Floating Success/Error Notification Toast */}
+      <AnimatePresence>
+        {globalToast && (
+          <motion.div
+            initial={{ opacity: 0, y: -50, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.95 }}
+            transition={{ type: "spring", duration: 0.4 }}
+            className="fixed top-6 left-1/2 -translate-x-1/2 z-[9999] w-full max-w-md px-4 pointer-events-auto"
+          >
+            <div className={`flex items-start gap-3.5 p-4 rounded-2xl shadow-xl border backdrop-blur-md ${
+              globalToast.type === 'success' 
+                ? 'bg-emerald-50/95 border-emerald-200/80 text-emerald-950 shadow-emerald-500/10' 
+                : 'bg-rose-50/95 border-rose-200/80 text-rose-950 shadow-rose-500/10'
+            }`}>
+              <div className={`p-1.5 rounded-full shrink-0 ${
+                globalToast.type === 'success' ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'
+              }`}>
+                {globalToast.type === 'success' ? <Check className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+              </div>
+              <div className="flex-1 min-w-0 text-left">
+                <h5 className="font-extrabold text-xs uppercase tracking-wider text-slate-800">
+                  {globalToast.type === 'success' ? 'Sistem Berhasil' : 'Kesalahan Sistem'}
+                </h5>
+                <p className="text-[11px] text-slate-600 mt-1 leading-relaxed font-medium">
+                  {globalToast.message}
+                </p>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setGlobalToast(null)} 
+                className="text-slate-400 hover:text-slate-600 p-0.5 rounded-lg transition shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Background Dim Backdrop */}
       {!isFullScreen && (
         <motion.div
@@ -2347,31 +2434,72 @@ export default function AdminPanel({
                     <span>Promo & Bundling ({currentBundles.length})</span>
                   </button>
 
+                  {/* Modul Pengiriman */}
                   <button
                     type="button"
-                    onClick={() => { setActiveTab('shipping'); setIsMobileSidebarOpen(false); }}
+                    onClick={() => { setActiveTab('delivery'); setIsMobileSidebarOpen(false); }}
                     className={`w-full py-3 px-4 text-xs font-black rounded-xl transition cursor-pointer flex items-center gap-3 text-left ${
-                      activeTab === 'shipping'
+                      activeTab === 'delivery'
                         ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
                         : 'text-slate-450 hover:text-slate-100 hover:bg-slate-800'
                     }`}
                   >
                     <Truck className="w-4 h-4 shrink-0 text-slate-450" />
-                    <span>🚚 Pengaturan Ongkir</span>
+                    <span>🚚 Modul Pengiriman</span>
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={() => { setActiveTab('landing'); setIsMobileSidebarOpen(false); }}
-                    className={`w-full py-3 px-4 text-xs font-black rounded-xl transition cursor-pointer flex items-center gap-3 text-left ${
-                      activeTab === 'landing'
-                        ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
-                        : 'text-slate-450 hover:text-slate-100 hover:bg-slate-800'
-                    }`}
-                  >
-                    <Settings className="w-4 h-4 shrink-0 text-slate-450" />
-                    <span>Struktur Landing Page</span>
-                  </button>
+                  {/* Menu Pengaturan dengan Submenu */}
+                  <div className="space-y-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (activeTab !== 'shipping' && activeTab !== 'landing') {
+                          setActiveTab('shipping');
+                        }
+                      }}
+                      className={`w-full py-3 px-4 text-xs font-black rounded-xl transition cursor-pointer flex items-center justify-between text-left ${
+                        activeTab === 'shipping' || activeTab === 'landing'
+                          ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
+                          : 'text-slate-450 hover:text-slate-100 hover:bg-slate-800'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <Settings className="w-4 h-4 shrink-0" />
+                        <span>⚙️ Pengaturan</span>
+                      </div>
+                      <ChevronDown className={`w-3.5 h-3.5 transition-transform ${activeTab === 'shipping' || activeTab === 'landing' ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {(activeTab === 'shipping' || activeTab === 'landing') && (
+                      <div className="pl-4 pr-1 py-1 space-y-1 border-l-2 border-emerald-600/30 ml-4 animate-fade-in">
+                        <button
+                          type="button"
+                          onClick={() => { setActiveTab('shipping'); setIsMobileSidebarOpen(false); }}
+                          className={`w-full py-2 px-3 text-[11px] font-bold rounded-lg transition cursor-pointer flex items-center gap-2.5 text-left ${
+                            activeTab === 'shipping'
+                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/25'
+                              : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800'
+                          }`}
+                        >
+                          <Truck className="w-3.5 h-3.5 shrink-0 text-slate-400" />
+                          <span>🚚 Rubah Ongkir</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => { setActiveTab('landing'); setIsMobileSidebarOpen(false); }}
+                          className={`w-full py-2 px-3 text-[11px] font-bold rounded-lg transition cursor-pointer flex items-center gap-2.5 text-left ${
+                            activeTab === 'landing'
+                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/25'
+                              : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800'
+                          }`}
+                        >
+                          <Settings className="w-3.5 h-3.5 shrink-0 text-slate-400" />
+                          <span>🎨 Rubah Tampilan</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
 
                   <button
                     type="button"
@@ -6690,6 +6818,158 @@ export default function AdminPanel({
               </div>
             )}
 
+            {/* TAB: MANAGEMENT JASA PENGIRIMAN */}
+            {activeTab === 'delivery' && (
+              <div className="space-y-6 animate-fade-in text-left">
+                {/* Header Section */}
+                <div className="bg-gradient-to-r from-teal-500 to-emerald-600 p-6 rounded-2xl text-white shadow-md">
+                  <div className="flex items-center gap-3">
+                    <div className="bg-white/15 p-3 rounded-xl">
+                      <Truck className="w-6 h-6 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-black uppercase tracking-tight">Modul Manajemen Jasa Pengiriman</h3>
+                      <p className="text-xs text-teal-50 mt-0.5 opacity-90">
+                        Kelola jenis layanan kurir yang tersedia untuk pengiriman pesanan ke pelanggan, serta atur label penamaan jasa kirim utama.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Main Settings Form */}
+                <form onSubmit={handleSaveSettings} className="bg-white p-6 rounded-2xl border border-slate-200/80 space-y-6 shadow-sm text-left">
+                  
+                  {/* Bagian 1: Label Jasa Kirim */}
+                  <div className="space-y-4">
+                    <div className="border-b border-slate-100 pb-3">
+                      <h4 className="font-extrabold text-sm text-slate-800 uppercase tracking-tight">1. Pengaturan Label Jasa Kirim Utama</h4>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Pilih label default yang akan digunakan di sistem keranjang dan struk pemesanan WhatsApp untuk memperjelas identitas kurir kepada pembeli.
+                      </p>
+                    </div>
+
+                    <div className="max-w-md">
+                      <label className="block text-xs font-black uppercase tracking-wider text-slate-500 mb-1.5 font-mono">
+                        Label Tampilan Jasa Kirim
+                      </label>
+                      <select
+                        name="shippingServiceLabel"
+                        value={settingsForm.shippingServiceLabel || 'kurir_toko'}
+                        onChange={handleInputChange}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:outline-emerald-600 focus:border-emerald-600 transition font-bold text-slate-800"
+                      >
+                        <option value="kurir_toko">Kurir Toko</option>
+                        <option value="kurir_luar">Kurir Luar</option>
+                      </select>
+                      <p className="text-[10px] text-slate-500 mt-1.5 leading-relaxed">
+                        Label terpilih akan menjadi nama pengiriman utama di struk tagihan belanja (WhatsApp) dan halaman ringkasan pembayaran di keranjang belanja.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Bagian 2: Jasa Pengiriman Aktif */}
+                  <div className="space-y-4 pt-4 border-t border-slate-100">
+                    <div className="border-b border-slate-100 pb-3">
+                      <h4 className="font-extrabold text-sm text-slate-800 uppercase tracking-tight">2. Aktivasi Metode Jasa Pengiriman Toko</h4>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Aktifkan opsi kurir apa saja yang dapat dipilih oleh pelanggan Anda saat mereka mengisi form alamat pengiriman.
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Kurir Toko Card */}
+                      <div className="p-4 rounded-xl border border-slate-150 bg-slate-50/50 hover:bg-slate-50 transition flex flex-col justify-between space-y-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <span className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                              🛵 Kurir Toko (Internal)
+                            </span>
+                            <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                              Layanan pengiriman aman dengan cold-chain armada internal untuk menjaga kesegaran produk segar/frozen beku.
+                            </p>
+                          </div>
+                          
+                          {/* Toggle Switch */}
+                          <button
+                            type="button"
+                            onClick={() => setSettingsForm((prev: any) => ({
+                              ...prev,
+                              shippingServiceKurirTokoActive: !prev.shippingServiceKurirTokoActive
+                            }))}
+                            className={`w-11 h-6 rounded-full transition-colors relative cursor-pointer ${
+                              settingsForm.shippingServiceKurirTokoActive ? 'bg-emerald-600' : 'bg-slate-300'
+                            }`}
+                          >
+                            <div
+                              className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-300 ${
+                                settingsForm.shippingServiceKurirTokoActive ? 'translate-x-5' : 'translate-x-0'
+                              }`}
+                            />
+                          </button>
+                        </div>
+                        <div className="text-[10px] bg-emerald-50 text-emerald-800 font-extrabold px-2.5 py-1 rounded-lg w-fit">
+                          Status: {settingsForm.shippingServiceKurirTokoActive ? '🟢 AKTIF' : '⚪ NONAKTIF'}
+                        </div>
+                      </div>
+
+                      {/* Kurir Luar Card */}
+                      <div className="p-4 rounded-xl border border-slate-150 bg-slate-50/50 hover:bg-slate-50 transition flex flex-col justify-between space-y-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <span className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                              📦 Kurir Luar (Eksternal / Mitra)
+                            </span>
+                            <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                              Layanan pengiriman pihak ketiga (mitra ojek online, ekspedisi instan, atau logistik kargo luar kota).
+                            </p>
+                          </div>
+
+                          {/* Toggle Switch */}
+                          <button
+                            type="button"
+                            onClick={() => setSettingsForm((prev: any) => ({
+                              ...prev,
+                              shippingServiceKurirLuarActive: !prev.shippingServiceKurirLuarActive
+                            }))}
+                            className={`w-11 h-6 rounded-full transition-colors relative cursor-pointer ${
+                              settingsForm.shippingServiceKurirLuarActive ? 'bg-emerald-600' : 'bg-slate-300'
+                            }`}
+                          >
+                            <div
+                              className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-300 ${
+                                settingsForm.shippingServiceKurirLuarActive ? 'translate-x-5' : 'translate-x-0'
+                              }`}
+                            />
+                          </button>
+                        </div>
+                        <div className="text-[10px] bg-blue-50 text-blue-800 font-extrabold px-2.5 py-1 rounded-lg w-fit">
+                          Status: {settingsForm.shippingServiceKurirLuarActive ? '🟢 AKTIF' : '⚪ NONAKTIF'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Warning if none is active */}
+                    {!settingsForm.shippingServiceKurirTokoActive && !settingsForm.shippingServiceKurirLuarActive && (
+                      <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs font-semibold leading-relaxed">
+                        ⚠️ <strong>Peringatan:</strong> Kedua layanan pengiriman berstatus nonaktif. Pelanggan tidak akan dapat memilih jenis kurir pengiriman saat checkout! Pastikan minimal mengaktifkan salah satu metode di atas.
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Submit Button */}
+                  <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-3">
+                    <button
+                      type="submit"
+                      disabled={isLoading}
+                      className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-400 text-white font-black text-xs uppercase tracking-wider px-6 py-3 rounded-xl cursor-pointer transition shadow-sm shadow-emerald-600/10 active:scale-95"
+                    >
+                      {isLoading ? 'Menyimpan...' : '💾 Simpan Konfigurasi Pengiriman'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
+
             {/* TAB: SHIPPING AND DISTANCE SETTINGS */}
             {activeTab === 'shipping' && (
               <div className="space-y-6 animate-fade-in text-left">
@@ -6895,22 +7175,133 @@ export default function AdminPanel({
                               </div>
                             )}
 
-                            {/* Config for Free Shipping weight threshold */}
-                            <div>
-                              <label className="block text-xs font-black uppercase tracking-wider text-slate-500 mb-1.5 font-mono">
-                                Batas Berat Gratis Ongkir (Kg)
-                              </label>
-                              <input
-                                type="number"
-                                name="shippingFreeMinWeight"
-                                value={settingsForm.shippingFreeMinWeight}
-                                onChange={(e) => setSettingsForm((prev: any) => ({ ...prev, shippingFreeMinWeight: Number(e.target.value) }))}
-                                placeholder="Contoh: 10"
-                                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:outline-emerald-600 focus:border-emerald-600 transition shadow-inner font-mono font-bold"
-                              />
-                              <p className="text-[10px] text-slate-500 mt-1 leading-relaxed">
-                                Pembeli yang membeli bahan segar dengan total berat di atas nilai ini akan mendapatkan Gratis Ongkir secara otomatis. Set ke nilai yang sangat besar (misal 9999) jika ingin menonaktifkan fitur gratis ongkir berdasarkan berat.
-                              </p>
+                            {/* Config for Free Shipping thresholds - Special wholesale feature */}
+                            <div className="p-5 bg-emerald-50/50 border border-emerald-100 rounded-2xl space-y-5">
+                              <div className="flex items-center gap-2 pb-2 border-b border-emerald-100">
+                                <span className="text-xl">🎁</span>
+                                <div>
+                                  <h4 className="text-xs font-black uppercase tracking-wider text-emerald-800 font-mono">
+                                    Sistem Baru: Subsidi & Gratis Ongkir Grosir
+                                  </h4>
+                                  <p className="text-[10px] text-emerald-600 font-medium">
+                                    Atur subsidi biaya pengiriman untuk meningkatkan loyalitas pembeli, serta gratis ongkir 100% untuk pembeli skala grosir besar.
+                                  </p>
+                                </div>
+                              </div>
+                              
+                              {/* Subsidi Jilid 1: Berdasarkan Berat */}
+                              <div className="bg-white p-4 rounded-xl border border-slate-200/80 space-y-3 shadow-sm">
+                                <div className="flex items-center gap-1.5 border-b border-slate-100 pb-2">
+                                  <span className="text-sm">⚖️</span>
+                                  <h5 className="text-[11px] font-black uppercase tracking-wider text-slate-700 font-mono">
+                                    1. Subsidi Berdasarkan Berat Paket
+                                  </h5>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  <div>
+                                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1 font-mono">
+                                      Min Berat Paket (Kg)
+                                    </label>
+                                    <input
+                                      type="number"
+                                      name="shippingSubsidyMinWeight"
+                                      value={settingsForm.shippingSubsidyMinWeight || 0}
+                                      onChange={(e) => setSettingsForm((prev: any) => ({ ...prev, shippingSubsidyMinWeight: Number(e.target.value) }))}
+                                      placeholder="Contoh: 10"
+                                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-emerald-600 focus:border-emerald-600 transition font-mono font-bold text-slate-800"
+                                    />
+                                    <p className="text-[9px] text-slate-500 mt-1">
+                                      Min berat untuk memicu subsidi. Set <code className="font-mono bg-slate-100 px-1 py-0.2 rounded font-bold">9999</code> untuk nonaktifkan.
+                                    </p>
+                                  </div>
+                                  <div>
+                                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1 font-mono">
+                                      Potongan Subsidi Ongkir (Rp)
+                                    </label>
+                                    <input
+                                      type="number"
+                                      name="shippingSubsidyWeightValue"
+                                      value={settingsForm.shippingSubsidyWeightValue || 0}
+                                      onChange={(e) => setSettingsForm((prev: any) => ({ ...prev, shippingSubsidyWeightValue: Number(e.target.value) }))}
+                                      placeholder="Contoh: 5000"
+                                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-emerald-600 focus:border-emerald-600 transition font-mono font-bold text-slate-800"
+                                    />
+                                    <p className="text-[9px] text-slate-500 mt-1">
+                                      Nominal potongan ongkir jika berat terpenuhi (misal Rp 5.000).
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Subsidi Jilid 2: Berdasarkan Nominal Belanja */}
+                              <div className="bg-white p-4 rounded-xl border border-slate-200/80 space-y-3 shadow-sm">
+                                <div className="flex items-center gap-1.5 border-b border-slate-100 pb-2">
+                                  <span className="text-sm">💰</span>
+                                  <h5 className="text-[11px] font-black uppercase tracking-wider text-slate-700 font-mono">
+                                    2. Subsidi Berdasarkan Nominal Belanja (Subtotal)
+                                  </h5>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  <div>
+                                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1 font-mono">
+                                      Min Belanja (Rp)
+                                    </label>
+                                    <input
+                                      type="number"
+                                      name="shippingSubsidyMinAmount"
+                                      value={settingsForm.shippingSubsidyMinAmount || 0}
+                                      onChange={(e) => setSettingsForm((prev: any) => ({ ...prev, shippingSubsidyMinAmount: Number(e.target.value) }))}
+                                      placeholder="Contoh: 150000"
+                                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-emerald-600 focus:border-emerald-600 transition font-mono font-bold text-slate-800"
+                                    />
+                                    <p className="text-[9px] text-slate-500 mt-1">
+                                      Min belanja untuk memicu subsidi. Set <code className="font-mono bg-slate-100 px-1 py-0.2 rounded font-bold">9999999</code> untuk nonaktifkan.
+                                    </p>
+                                  </div>
+                                  <div>
+                                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1 font-mono">
+                                      Potongan Subsidi Ongkir (Rp)
+                                    </label>
+                                    <input
+                                      type="number"
+                                      name="shippingSubsidyAmountValue"
+                                      value={settingsForm.shippingSubsidyAmountValue || 0}
+                                      onChange={(e) => setSettingsForm((prev: any) => ({ ...prev, shippingSubsidyAmountValue: Number(e.target.value) }))}
+                                      placeholder="Contoh: 10000"
+                                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-emerald-600 focus:border-emerald-600 transition font-mono font-bold text-slate-800"
+                                    />
+                                    <p className="text-[9px] text-slate-500 mt-1">
+                                      Nominal potongan ongkir jika nominal terpenuhi (misal Rp 10.000).
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Jilid 3: Gratis Ongkir Mutlak Grosir */}
+                              <div className="bg-emerald-600 text-white p-4 rounded-xl border border-emerald-700 space-y-3 shadow-md">
+                                <div className="flex items-center gap-1.5 border-b border-emerald-500 pb-2">
+                                  <span className="text-sm">🚛</span>
+                                  <h5 className="text-[11px] font-black uppercase tracking-wider text-white font-mono">
+                                    3. Gratis Ongkir Mutlak (Skala Grosir Besar)
+                                  </h5>
+                                </div>
+                                <div>
+                                  <label className="block text-[10px] font-bold uppercase tracking-wider text-emerald-100 mb-1 font-mono">
+                                    Min Berat Paket untuk Gratis Ongkir 100% (Kg)
+                                  </label>
+                                  <input
+                                    type="number"
+                                    name="shippingFreeWholesaleWeight"
+                                    value={settingsForm.shippingFreeWholesaleWeight || 0}
+                                    onChange={(e) => setSettingsForm((prev: any) => ({ ...prev, shippingFreeWholesaleWeight: Number(e.target.value) }))}
+                                    placeholder="Contoh: 150"
+                                    className="w-full bg-white text-slate-800 border border-emerald-500 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-amber-400 focus:outline-none transition font-mono font-bold"
+                                  />
+                                  <p className="text-[9px] text-emerald-100 mt-1 leading-relaxed">
+                                    Jika total berat pesanan melebihi batas ini (misal 150 Kg, 300 Kg, atau 500 Kg), pembeli otomatis mendapatkan **Gratis Ongkir 100% (Subsidi Penuh)** tanpa batasan biaya! Set <code className="font-mono bg-emerald-700 text-white px-1 py-0.2 rounded font-bold">99999</code> untuk menonaktifkan.
+                                  </p>
+                                </div>
+                              </div>
                             </div>
 
                             {/* Config for Store Coordinates */}
@@ -6999,51 +7390,125 @@ export default function AdminPanel({
                             </span>
                           </div>
                         </div>
+
+                        <div>
+                          <label className="block text-xs font-black uppercase tracking-wider text-slate-400 mb-1 font-mono">
+                            Total Belanja Simulasi (Rp)
+                          </label>
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="range"
+                              min="10000"
+                              max="500000"
+                              step="5000"
+                              value={simAmount}
+                              onChange={(e) => setSimAmount(Number(e.target.value))}
+                              className="w-full accent-amber-600 h-2 bg-slate-100 rounded-lg cursor-pointer"
+                            />
+                            <span className="font-mono font-black text-xs text-slate-800 shrink-0 bg-slate-100 px-2.5 py-1 rounded-lg">
+                              Rp {simAmount.toLocaleString('id-ID')}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-black uppercase tracking-wider text-slate-400 mb-1 font-mono">
+                            Jumlah Barang Simulasi (Qty)
+                          </label>
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="range"
+                              min="1"
+                              max="50"
+                              step="1"
+                              value={simQty}
+                              onChange={(e) => setSimQty(Number(e.target.value))}
+                              className="w-full accent-amber-600 h-2 bg-slate-100 rounded-lg cursor-pointer"
+                            />
+                            <span className="font-mono font-black text-sm text-slate-800 shrink-0 bg-slate-100 px-2.5 py-1 rounded-lg">
+                              {simQty} Item
+                            </span>
+                          </div>
+                        </div>
                       </div>
 
                       {/* Simulation Result Area */}
                       {(() => {
-                        const isSimFree = simWeight >= (settingsForm.shippingFreeMinWeight !== undefined ? Number(settingsForm.shippingFreeMinWeight) : 10);
-                        let simCost = 0;
-                        let simCostExplanation = "";
+                        const subMinWeight = settingsForm.shippingSubsidyMinWeight !== undefined ? Number(settingsForm.shippingSubsidyMinWeight) : 10;
+                        const subWeightVal = settingsForm.shippingSubsidyWeightValue !== undefined ? Number(settingsForm.shippingSubsidyWeightValue) : 5000;
+                        const subMinAmount = settingsForm.shippingSubsidyMinAmount !== undefined ? Number(settingsForm.shippingSubsidyMinAmount) : 150000;
+                        const subAmountVal = settingsForm.shippingSubsidyAmountValue !== undefined ? Number(settingsForm.shippingSubsidyAmountValue) : 10000;
+                        const freeWholesaleWeight = settingsForm.shippingFreeWholesaleWeight !== undefined ? Number(settingsForm.shippingFreeWholesaleWeight) : 150;
 
-                        if (!settingsForm.enableDistanceShipping) {
-                          simCost = 0;
-                          simCostExplanation = "Kalkulator dinonaktifkan karena fitur Ongkir Jarak tidak aktif.";
-                        } else if (isSimFree) {
-                          simCost = 0;
-                          simCostExplanation = `Gratis Ongkir karena berat paket simulasi (${simWeight} Kg) sudah mencapai batas minimum gratis ongkir (${settingsForm.shippingFreeMinWeight} Kg).`;
-                        } else {
-                          if (settingsForm.shippingCalcType === 'per_km') {
-                            const costPerKm = Number(settingsForm.shippingCostPerKm) || 0;
-                            const minCost = Number(settingsForm.shippingMinCost) || 0;
-                            const rawCost = simDistance * costPerKm;
-                            if (rawCost < minCost) {
-                              simCost = minCost;
-                              simCostExplanation = `Tarif per kilometer: ${simDistance} Km x Rp ${costPerKm.toLocaleString('id-ID')}/Km = Rp ${rawCost.toLocaleString('id-ID')}. Karena di bawah biaya minimum (Rp ${minCost.toLocaleString('id-ID')}), maka dibulatkan menjadi Rp ${minCost.toLocaleString('id-ID')}.`;
-                            } else {
-                              simCost = rawCost;
-                              simCostExplanation = `Tarif per kilometer: ${simDistance} Km x Rp ${costPerKm.toLocaleString('id-ID')}/Km = Rp ${rawCost.toLocaleString('id-ID')}.`;
-                            }
+                        let baseCost = 0;
+                        let baseExplanation = "";
+
+                        // 1. Calculate Base Cost
+                        if (settingsForm.shippingCalcType === 'per_km') {
+                          const costPerKm = Number(settingsForm.shippingCostPerKm) || 0;
+                          const minCost = Number(settingsForm.shippingMinCost) || 0;
+                          const rawCost = simDistance * costPerKm;
+                          if (rawCost < minCost) {
+                            baseCost = minCost;
+                            baseExplanation = `Tarif per Km: ${simDistance} Km x Rp ${costPerKm.toLocaleString('id-ID')}/Km = Rp ${rawCost.toLocaleString('id-ID')} (Dibulatkan ke Biaya Min Rp ${minCost.toLocaleString('id-ID')})`;
                           } else {
-                            // Tiered
-                            const t1Max = Number(settingsForm.shippingTier1Max) || 3;
-                            const t1Cost = Number(settingsForm.shippingTier1Cost) || 5000;
-                            const t2Max = Number(settingsForm.shippingTier2Max) || 7;
-                            const t2Cost = Number(settingsForm.shippingTier2Cost) || 10000;
-                            const t3Max = Number(settingsForm.shippingTier3Max) || 15;
-                            const t3Cost = Number(settingsForm.shippingTier3Cost) || 20000;
-                            
-                            if (simDistance <= t1Max) {
-                              simCost = t1Cost;
-                              simCostExplanation = `Tingkatan Jarak 1: Jarak simulasi ${simDistance} Km <= ${t1Max} Km. Tarif flat yang berlaku adalah Rp ${t1Cost.toLocaleString('id-ID')}.`;
-                            } else if (simDistance <= t2Max) {
-                              simCost = t2Cost;
-                              simCostExplanation = `Tingkatan Jarak 2: Jarak simulasi ${simDistance} Km berada di antara ${t1Max} Km dan ${t2Max} Km. Tarif flat yang berlaku adalah Rp ${t2Cost.toLocaleString('id-ID')}.`;
-                            } else {
-                              simCost = t3Cost;
-                              simCostExplanation = `Tingkatan Jarak 3: Jarak simulasi ${simDistance} Km > ${t2Max} Km. Tarif flat yang berlaku adalah Rp ${t3Cost.toLocaleString('id-ID')}.`;
-                            }
+                            baseCost = rawCost;
+                            baseExplanation = `Tarif per Km: ${simDistance} Km x Rp ${costPerKm.toLocaleString('id-ID')}/Km = Rp ${rawCost.toLocaleString('id-ID')}`;
+                          }
+                        } else {
+                          // Tiered
+                          const t1Max = Number(settingsForm.shippingTier1Max) || 3;
+                          const t1Cost = Number(settingsForm.shippingTier1Cost) || 5000;
+                          const t2Max = Number(settingsForm.shippingTier2Max) || 7;
+                          const t2Cost = Number(settingsForm.shippingTier2Cost) || 10000;
+                          const t3Max = Number(settingsForm.shippingTier3Max) || 15;
+                          const t3Cost = Number(settingsForm.shippingTier3Cost) || 20000;
+                          
+                          if (simDistance <= t1Max) {
+                            baseCost = t1Cost;
+                            baseExplanation = `Tier 1: Jarak ${simDistance} Km <= ${t1Max} Km (Tarif Flat Rp ${t1Cost.toLocaleString('id-ID')})`;
+                          } else if (simDistance <= t2Max) {
+                            baseCost = t2Cost;
+                            baseExplanation = `Tier 2: Jarak ${simDistance} Km <= ${t2Max} Km (Tarif Flat Rp ${t2Cost.toLocaleString('id-ID')})`;
+                          } else {
+                            baseCost = t3Cost;
+                            baseExplanation = `Tier 3: Jarak ${simDistance} Km > ${t2Max} Km (Tarif Flat Rp ${t3Cost.toLocaleString('id-ID')})`;
+                          }
+                        }
+
+                        // 2. Check Wholesale Free Shipping (Gratis Ongkir Mutlak)
+                        const isWholesaleFree = simWeight >= freeWholesaleWeight && freeWholesaleWeight < 99999;
+                        
+                        // 3. Check Subsidies
+                        const isWeightSubsidyActive = simWeight >= subMinWeight && subMinWeight < 9999;
+                        const isAmountSubsidyActive = simAmount >= subMinAmount && subMinAmount < 9999999;
+
+                        const discountWeight = isWeightSubsidyActive ? subWeightVal : 0;
+                        const discountAmount = isAmountSubsidyActive ? subAmountVal : 0;
+                        
+                        // Determine applied subsidy (get the maximum available subsidy for best customer experience)
+                        const appliedSubsidy = Math.max(discountWeight, discountAmount);
+                        const finalCost = isWholesaleFree ? 0 : Math.max(0, baseCost - appliedSubsidy);
+
+                        let simCostExplanation = "";
+                        if (!settingsForm.enableDistanceShipping) {
+                          simCostExplanation = "Kalkulator dinonaktifkan karena fitur Ongkir Jarak tidak aktif.";
+                        } else if (isWholesaleFree) {
+                          simCostExplanation = `🎉 Gratis Ongkir Grosir Aktif! Berat paket simulasi (${simWeight} Kg) ≥ Batas Grosir (${freeWholesaleWeight} Kg). Biaya pengiriman menjadi Rp 0 (Potongan penuh Rp ${baseCost.toLocaleString('id-ID')}).`;
+                        } else {
+                          let subsidyParts = [];
+                          if (isWeightSubsidyActive) {
+                            subsidyParts.push(`Subsidi Berat Rp ${subWeightVal.toLocaleString('id-ID')} (Syarat: ≥ ${subMinWeight} Kg)`);
+                          }
+                          if (isAmountSubsidyActive) {
+                            subsidyParts.push(`Subsidi Belanja Rp ${subAmountVal.toLocaleString('id-ID')} (Syarat: ≥ Rp ${subMinAmount.toLocaleString('id-ID')})`);
+                          }
+
+                          if (subsidyParts.length > 0) {
+                            const bestSubsidyName = discountWeight >= discountAmount ? "Subsidi Berat" : "Subsidi Belanja";
+                            simCostExplanation = `${baseExplanation}. Mendapat ${subsidyParts.join(' & ')}. Sistem menggunakan potongan terbesar (${bestSubsidyName} sebesar Rp ${appliedSubsidy.toLocaleString('id-ID')}). Biaya akhir: Rp ${baseCost.toLocaleString('id-ID')} - Rp ${appliedSubsidy.toLocaleString('id-ID')} = Rp ${finalCost.toLocaleString('id-ID')}.`;
+                          } else {
+                            simCostExplanation = `${baseExplanation}. Tidak ada subsidi aktif karena berat simulasi (${simWeight} Kg) < ${subMinWeight} Kg dan nominal belanja (Rp ${simAmount.toLocaleString('id-ID')}) < Rp ${subMinAmount.toLocaleString('id-ID')}.`;
                           }
                         }
 
@@ -7051,19 +7516,23 @@ export default function AdminPanel({
                           <div className={`p-4 rounded-2xl border ${
                             !settingsForm.enableDistanceShipping 
                               ? 'bg-slate-50 border-slate-200' 
-                              : isSimFree 
+                              : isWholesaleFree 
                                 ? 'bg-emerald-50 border-emerald-100 text-emerald-900' 
-                                : 'bg-amber-50 border-amber-100 text-amber-900'
+                                : appliedSubsidy > 0
+                                  ? 'bg-sky-55/70 border-sky-150 text-sky-950 bg-sky-50'
+                                  : 'bg-amber-50 border-amber-100 text-amber-900'
                           } space-y-2`}>
                             <div className="flex justify-between items-center">
                               <span className="text-xs font-bold uppercase tracking-wider">Hasil Biaya Ongkir:</span>
                               <span className="text-lg font-black font-mono">
                                 {!settingsForm.enableDistanceShipping ? (
                                   "Nonaktif"
-                                ) : isSimFree ? (
+                                ) : isWholesaleFree ? (
                                   <span className="text-emerald-600">Gratis (Rp 0)</span>
+                                ) : finalCost === 0 ? (
+                                  <span className="text-emerald-600">Subsidi Penuh (Rp 0)</span>
                                 ) : (
-                                  `Rp ${simCost.toLocaleString('id-ID')}`
+                                  `Rp ${finalCost.toLocaleString('id-ID')}`
                                 )}
                               </span>
                             </div>

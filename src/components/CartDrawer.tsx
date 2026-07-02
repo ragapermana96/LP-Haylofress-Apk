@@ -114,20 +114,25 @@ export default function CartDrawer({
 
   // Calculate dynamic distance-based shipping cost
   const isShippingEnabled = settings?.enableDistanceShipping === true;
+  const isKurirTokoActive = settings?.shippingServiceKurirTokoActive !== false;
+  const isKurirLuarActive = settings?.shippingServiceKurirLuarActive !== false;
+  const selectedService = customerInfo.shippingService || (isKurirTokoActive ? 'kurir_toko' : isKurirLuarActive ? 'kurir_luar' : 'kurir_toko');
+  const shippingServiceLabelText = selectedService === 'kurir_luar' ? 'Kurir Luar' : 'Kurir Toko';
   const distanceVal = parseFloat(customerInfo.distance || '0') || 0;
   
-  const freeMinWeight = settings?.shippingFreeMinWeight !== undefined ? Number(settings.shippingFreeMinWeight) : 10;
-  const isFreeShipping = cartSummary.totalWeight >= freeMinWeight;
-  
-  let shippingCost = 0;
-  if (isShippingEnabled && !isFreeShipping) {
+  const subMinWeight = settings?.shippingSubsidyMinWeight !== undefined ? Number(settings.shippingSubsidyMinWeight) : 10;
+  const subWeightVal = settings?.shippingSubsidyWeightValue !== undefined ? Number(settings.shippingSubsidyWeightValue) : 5000;
+  const subMinAmount = settings?.shippingSubsidyMinAmount !== undefined ? Number(settings.shippingSubsidyMinAmount) : 150000;
+  const subAmountVal = settings?.shippingSubsidyAmountValue !== undefined ? Number(settings.shippingSubsidyAmountValue) : 10000;
+  const freeWholesaleWeight = settings?.shippingFreeWholesaleWeight !== undefined ? Number(settings.shippingFreeWholesaleWeight) : 150;
+
+  let baseShippingCost = 0;
+  if (isShippingEnabled && distanceVal > 0) {
     const calcType = settings?.shippingCalcType || 'per_km';
     if (calcType === 'per_km') {
       const costPerKm = settings?.shippingCostPerKm !== undefined ? Number(settings.shippingCostPerKm) : 2000;
       const minCost = settings?.shippingMinCost !== undefined ? Number(settings.shippingMinCost) : 5000;
-      if (distanceVal > 0) {
-        shippingCost = Math.max(minCost, distanceVal * costPerKm);
-      }
+      baseShippingCost = Math.max(minCost, distanceVal * costPerKm);
     } else {
       // Tiered calculation
       const t1Max = settings?.shippingTier1Max !== undefined ? Number(settings.shippingTier1Max) : 3;
@@ -137,14 +142,35 @@ export default function CartDrawer({
       const t3Max = settings?.shippingTier3Max !== undefined ? Number(settings.shippingTier3Max) : 15;
       const t3Cost = settings?.shippingTier3Cost !== undefined ? Number(settings.shippingTier3Cost) : 20000;
       
-      if (distanceVal > 0) {
-        if (distanceVal <= t1Max) shippingCost = t1Cost;
-        else if (distanceVal <= t2Max) shippingCost = t2Cost;
-        else shippingCost = t3Cost; // standard fallback
-      }
+      if (distanceVal <= t1Max) baseShippingCost = t1Cost;
+      else if (distanceVal <= t2Max) baseShippingCost = t2Cost;
+      else baseShippingCost = t3Cost;
     }
   }
+
+  const isWholesaleFree = cartSummary.totalWeight >= freeWholesaleWeight && freeWholesaleWeight < 99999;
   
+  const isWeightSubsidyActive = cartSummary.totalWeight >= subMinWeight && subMinWeight < 9999;
+  const isAmountSubsidyActive = cartSummary.subtotalActual >= subMinAmount && subMinAmount < 9999999;
+
+  const subsidyWeight = isWeightSubsidyActive ? subWeightVal : 0;
+  const subsidyAmount = isAmountSubsidyActive ? subAmountVal : 0;
+
+  const appliedSubsidy = Math.max(subsidyWeight, subsidyAmount);
+
+  let shippingCost = 0;
+  let appliedSubsidyAmount = 0;
+
+  if (isShippingEnabled && distanceVal > 0) {
+    if (isWholesaleFree) {
+      shippingCost = 0;
+      appliedSubsidyAmount = baseShippingCost;
+    } else {
+      appliedSubsidyAmount = Math.min(baseShippingCost, appliedSubsidy);
+      shippingCost = Math.max(0, baseShippingCost - appliedSubsidyAmount);
+    }
+  }
+
   const grandTotal = cartSummary.subtotalActual + shippingCost;
 
   // Helper to extract coordinates from Google Maps URL
@@ -276,7 +302,7 @@ export default function CartDrawer({
       setValidationError('Silakan masukkan Alamat Pengiriman Lengkap Anda di Ngawi.');
       return;
     }
-    if (isShippingEnabled && !isFreeShipping && (!customerInfo.distance || parseFloat(customerInfo.distance) <= 0)) {
+    if (isShippingEnabled && !isWholesaleFree && (!customerInfo.distance || parseFloat(customerInfo.distance) <= 0)) {
       setValidationError('Silakan masukkan estimasi jarak pengiriman (Km) yang valid.');
       return;
     }
@@ -306,7 +332,7 @@ export default function CartDrawer({
     });
 
     const mapsLinkLine = customerInfo.mapsLink?.trim() ? `🗺️ Google Maps: ${customerInfo.mapsLink.trim()}\n` : '';
-    const distanceLine = isShippingEnabled ? `🛵 Jarak Kirim: ${distanceVal} Km\n` : '';
+    const distanceLine = isShippingEnabled ? `🛵 Jarak Kirim: ${distanceVal} Km\n🚚 Jasa Kirim: ${shippingServiceLabelText}\n` : '';
 
     const titleMessage = `*PESANAN BARU - HAYLOFRESS NGAWI*`;
     const customerBlock = `*DATA PELANGGAN:*
@@ -320,7 +346,13 @@ ${mapsLinkLine}${distanceLine}🏬 Tipe Mitra: ${buyerTypeLabel}
 ${itemLines}`;
 
     const shippingBreakdown = isShippingEnabled 
-      ? `Subtotal Belanja: ${formatIDR(cartSummary.subtotalActual)}\n🚚 Ongkos Kirim: ${shippingCost === 0 ? 'GRATIS' : formatIDR(shippingCost)}\n`
+      ? `Subtotal Belanja: ${formatIDR(cartSummary.subtotalActual)}\n🚚 Ongkir (${shippingServiceLabelText}): ${
+          isWholesaleFree 
+            ? 'GRATIS (Promo Grosir)' 
+            : appliedSubsidyAmount > 0 
+              ? `${shippingCost === 0 ? 'GRATIS' : formatIDR(shippingCost)} (Subsidi Aktif: -${formatIDR(appliedSubsidyAmount)})`
+              : formatIDR(shippingCost)
+        }\n`
       : '';
 
     const summaryBlock = `*RINGKASAN BELANJA:*
@@ -418,20 +450,28 @@ ${shippingBreakdown}
               {cart.length > 0 ? (
                 <>
                   {/* Free Delivery Promo Bar */}
-                  {cartSummary.totalWeight >= freeMinWeight ? (
+                  {isWholesaleFree ? (
                     <div className="bg-emerald-50/85 backdrop-blur-md border border-emerald-200/80 text-emerald-950 p-3.5 rounded-2xl text-xs flex gap-2.5 items-start shadow-sm">
                       <Sparkles className="w-5 h-5 text-emerald-600 flex-shrink-0 animate-pulse" />
                       <div>
-                        <strong className="font-extrabold text-emerald-900">🎉 Selamat, Bebas Ongkir Aktif!</strong>
-                        <p className="text-slate-650 mt-0.5">Berat total belanja Anda sudah mencapai {cartSummary.totalWeight} Kg. Gratis ongkir area Ngawi!</p>
+                        <strong className="font-extrabold text-emerald-900">🎉 Selamat, Bebas Ongkir Grosir Aktif!</strong>
+                        <p className="text-slate-650 mt-0.5">Berat total belanja Anda ({cartSummary.totalWeight.toFixed(1)} Kg) sudah mencapai batas grosir (≥ {freeWholesaleWeight} Kg). Gratis ongkir 100% area Ngawi!</p>
+                      </div>
+                    </div>
+                  ) : appliedSubsidy > 0 ? (
+                    <div className="bg-sky-50/85 backdrop-blur-md border border-sky-200/80 text-sky-950 p-3.5 rounded-2xl text-xs flex gap-2.5 items-start shadow-sm">
+                      <Sparkles className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+                      <div>
+                        <strong className="font-extrabold text-sky-900">🎁 Subsidi Ongkir Aktif!</strong>
+                        <p className="text-slate-650 mt-0.5">Anda mendapat subsidi ongkir sebesar <strong className="font-extrabold text-emerald-800">{formatIDR(appliedSubsidy)}</strong>. Tambah {(freeWholesaleWeight - cartSummary.totalWeight).toFixed(1)} Kg lagi untuk <strong>Bebas Ongkir Grosir 100%!</strong></p>
                       </div>
                     </div>
                   ) : (
                     <div className="bg-amber-50/85 backdrop-blur-md border border-amber-200/80 text-amber-950 p-3.5 rounded-2xl text-xs flex gap-2.5 items-start shadow-sm">
                       <Sparkles className="w-5 h-5 text-amber-600 flex-shrink-0" />
                       <div>
-                        <strong className="font-extrabold text-amber-900">Delivery Promo:</strong>
-                        <p className="text-slate-650 mt-0.5">Tambahkan <strong className="font-semibold text-amber-850">{freeMinWeight - cartSummary.totalWeight} Kg</strong> produk segar lagi untuk klaim Free Ongkir Ngawi!</p>
+                        <strong className="font-extrabold text-amber-900">Promo Pengiriman:</strong>
+                        <p className="text-slate-650 mt-0.5">Tambahkan <strong className="font-semibold text-amber-850">{(subMinWeight - cartSummary.totalWeight).toFixed(1)} Kg</strong> lagi untuk klaim subsidi ongkir {formatIDR(subWeightVal)}!</p>
                       </div>
                     </div>
                   )}
@@ -711,13 +751,24 @@ ${shippingBreakdown}
                           
                           {/* Live shipping cost summary message */}
                           {distanceVal > 0 ? (
-                            <p className="text-[10px] text-slate-500 font-medium mt-1">
-                              {isFreeShipping ? (
-                                <span className="text-emerald-700 font-bold block">🎉 Gratis Ongkir Aktif (Belanja ≥ {freeMinWeight} Kg)</span>
+                            <div className="text-[10px] text-slate-500 font-medium mt-1 space-y-0.5">
+                              {isWholesaleFree ? (
+                                <span className="text-emerald-700 font-extrabold block">
+                                  🎉 Gratis Ongkir Grosir Aktif (Berat ≥ {freeWholesaleWeight} Kg)
+                                </span>
+                              ) : appliedSubsidyAmount > 0 ? (
+                                <div className="block">
+                                  <span className="text-sky-700 font-extrabold block">
+                                    🎁 Dapat Subsidi Ongkir: -{formatIDR(appliedSubsidyAmount)}
+                                  </span>
+                                  <span>
+                                    Estimasi Ongkir ({shippingServiceLabelText}) setelah subsidi: <strong className="text-emerald-600 font-extrabold font-mono">{formatIDR(shippingCost)}</strong> <span className="text-slate-400 font-normal line-through">({formatIDR(baseShippingCost)})</span>
+                                  </span>
+                                </div>
                               ) : (
-                                <span className="block">Estimasi Ongkos Kirim: <strong className="text-emerald-600 font-extrabold font-mono">{formatIDR(shippingCost)}</strong></span>
+                                <span className="block">Estimasi Ongkos Kirim ({shippingServiceLabelText}): <strong className="text-emerald-600 font-extrabold font-mono">{formatIDR(shippingCost)}</strong></span>
                               )}
-                            </p>
+                            </div>
                           ) : (
                             <p className="text-[10px] text-amber-600 font-semibold mt-1 block">
                               Silakan masukkan estimasi jarak (Km) untuk menghitung ongkir.
@@ -765,20 +816,122 @@ ${shippingBreakdown}
             {/* Bottom calculation and check CTA bar */}
             {cart.length > 0 && (
               <div className="p-5 border-t border-white/60 bg-white/50 backdrop-blur-xl space-y-4 sticky bottom-0 z-10 shadow-lg">
+                {/* Promo Subsidi & Gratis Ongkir Grosir Banner */}
+                {isShippingEnabled && (
+                  <div className={`p-3.5 rounded-2xl border text-xs leading-relaxed transition-all duration-350 ${
+                    isWholesaleFree 
+                      ? 'bg-emerald-50/90 border-emerald-200/60 text-emerald-900 shadow-sm'
+                      : appliedSubsidy > 0
+                        ? 'bg-sky-50 border-sky-200/60 text-sky-950 shadow-sm bg-sky-50/90'
+                        : 'bg-amber-50/85 border-amber-200/50 text-slate-850 shadow-inner'
+                  }`}>
+                    {isWholesaleFree ? (
+                      <div className="flex items-start gap-2.5">
+                        <span className="text-base shrink-0">🎉</span>
+                        <div>
+                          <p className="font-extrabold text-emerald-800 text-[11px] uppercase tracking-wider">Selamat! Anda Dapat Gratis Ongkir Grosir</p>
+                          <p className="text-[10px] text-emerald-700 font-medium mt-0.5">
+                            Total berat pesanan Anda ({cartSummary.totalWeight} Kg) telah memenuhi kriteria gratis ongkir grosir penuh (≥ {freeWholesaleWeight} Kg). Ongkos kirim Anda Rp 0!
+                          </p>
+                        </div>
+                      </div>
+                    ) : appliedSubsidy > 0 ? (
+                      <div className="space-y-2">
+                        <div className="flex items-start gap-2.5">
+                          <span className="text-base shrink-0">🎁</span>
+                          <div className="flex-1">
+                            <p className="font-extrabold text-sky-850 text-[11px] uppercase tracking-wider">Subsidi Ongkir Aktif!</p>
+                            <p className="text-[10px] text-slate-600 font-medium mt-0.5">
+                              Anda mendapat potongan ongkir sebesar <strong className="text-emerald-700 font-black">{formatIDR(appliedSubsidy)}</strong> karena memenuhi syarat {isWeightSubsidyActive && isAmountSubsidyActive ? 'berat paket & nominal belanja' : isWeightSubsidyActive ? `berat paket (≥ ${subMinWeight} Kg)` : `nominal belanja (≥ ${formatIDR(subMinAmount)})`}.
+                            </p>
+                          </div>
+                        </div>
+                        {/* Progress to Wholesale Free Shipping */}
+                        {freeWholesaleWeight < 99999 && (
+                          <div className="pt-2 border-t border-sky-100/50 space-y-1">
+                            <p className="text-[10px] text-slate-500 font-medium leading-relaxed flex justify-between">
+                              <span>Kejar <strong>Gratis Ongkir Grosir (100%)</strong>:</span>
+                              <span className="font-bold text-emerald-700">Kurang {(freeWholesaleWeight - cartSummary.totalWeight).toFixed(1)} Kg lagi</span>
+                            </p>
+                            <div className="w-full bg-slate-200/55 rounded-full h-1.5 overflow-hidden">
+                              <div 
+                                className="bg-emerald-500 h-full transition-all duration-500 rounded-full"
+                                style={{ width: `${Math.min(100, (cartSummary.totalWeight / freeWholesaleWeight) * 100)}%` }}
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="flex items-start gap-2.5">
+                          <span className="text-base shrink-0">💡</span>
+                          <div className="flex-1">
+                            <p className="font-extrabold text-amber-850 text-[11px] uppercase tracking-wider">Penawaran Subsidi Ongkos Kirim</p>
+                            <p className="text-[10px] text-slate-650 font-medium mt-0.5 leading-relaxed">
+                              {subMinWeight < 9999 && subMinAmount < 9999999 ? (
+                                <span>
+                                  Tambah <strong className="text-amber-850 font-extrabold">{(subMinWeight - cartSummary.totalWeight).toFixed(1)} Kg</strong> lagi untuk subsidi <strong className="text-emerald-700 font-extrabold">{formatIDR(subWeightVal)}</strong> ATAU belanja <strong className="text-amber-800 font-extrabold">{formatIDR(subMinAmount - cartSummary.subtotalActual)}</strong> lagi untuk subsidi <strong className="text-emerald-700 font-extrabold">{formatIDR(subAmountVal)}</strong>!
+                                </span>
+                              ) : subMinWeight < 9999 ? (
+                                <span>
+                                  Tambah <strong className="text-amber-800 font-extrabold">{(subMinWeight - cartSummary.totalWeight).toFixed(1)} Kg</strong> lagi untuk mendapat subsidi <strong className="text-emerald-700 font-extrabold">{formatIDR(subWeightVal)}</strong>!
+                                </span>
+                              ) : (
+                                <span>
+                                  Belanja <strong className="text-amber-800 font-extrabold">{formatIDR(subMinAmount - cartSummary.subtotalActual)}</strong> lagi untuk mendapat subsidi <strong className="text-emerald-700 font-extrabold">{formatIDR(subAmountVal)}</strong>!
+                                </span>
+                              )}
+                            </p>
+                          </div>
+                        </div>
+                        {/* Progress bar to nearest subsidy */}
+                        {(() => {
+                          const progressWeight = subMinWeight < 9999 ? (cartSummary.totalWeight / subMinWeight) * 100 : 0;
+                          const progressAmount = subMinAmount < 9999999 ? (cartSummary.subtotalActual / subMinAmount) * 100 : 0;
+                          const bestProgress = Math.min(99.9, Math.max(progressWeight, progressAmount));
+                          if (bestProgress > 0) {
+                            return (
+                              <div className="w-full bg-slate-200/55 rounded-full h-1.5 overflow-hidden">
+                                <div 
+                                  className="bg-amber-500 h-full transition-all duration-500 rounded-full"
+                                  style={{ width: `${bestProgress}%` }}
+                                />
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Math values breakdown */}
                 <div className="space-y-2 text-xs sm:text-sm text-slate-600">
                   <div className="flex justify-between items-center">
                     <span>Subtotal Berat:</span>
-                    <span className="font-bold text-slate-800">~{cartSummary.totalWeight} Kg</span>
+                    <span className="font-bold text-slate-800">~{cartSummary.totalWeight.toFixed(1)} Kg</span>
                   </div>
                   {isShippingEnabled && (
                     <div className="flex justify-between items-center">
-                      <span>Ongkos Kirim ({distanceVal} Km):</span>
+                      <span>Ongkos Kirim ({shippingServiceLabelText}) ({distanceVal} Km):</span>
                       <span className="font-bold text-slate-800">
-                        {isFreeShipping ? (
-                          <span className="text-emerald-600 font-extrabold uppercase">Gratis</span>
+                        {isWholesaleFree ? (
+                          <span className="text-emerald-600 font-extrabold uppercase">Gratis (Grosir)</span>
                         ) : distanceVal > 0 ? (
-                          formatIDR(shippingCost)
+                          appliedSubsidyAmount > 0 ? (
+                            <span className="flex items-center gap-1.5 justify-end">
+                              <span className="line-through text-slate-400 font-normal text-xs">{formatIDR(baseShippingCost)}</span>
+                              {shippingCost === 0 ? (
+                                <span className="text-emerald-600 font-extrabold uppercase text-xs">Subsidi Penuh</span>
+                              ) : (
+                                <span className="text-emerald-600 font-extrabold">{formatIDR(shippingCost)}</span>
+                              )}
+                            </span>
+                          ) : (
+                            formatIDR(shippingCost)
+                          )
                         ) : (
                           <span className="text-amber-600 italic text-xs">Masukkan Jarak</span>
                         )}
